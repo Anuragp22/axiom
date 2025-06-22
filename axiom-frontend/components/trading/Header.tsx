@@ -4,6 +4,10 @@ import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { FilterPanel } from './FilterPanel';
 import { cn } from '@/lib/utils';
+import { useAppSelector, useAppDispatch } from '@/lib/store';
+import { setTimeframe } from '@/lib/store/slices/filtersSlice';
+import { useQueryClient } from '@tanstack/react-query';
+import { tokenQueryKeys } from '@/lib/hooks/useTokens';
 import Image from 'next/image';
 
 const timeframes = [
@@ -14,12 +18,17 @@ const timeframes = [
 ] as const;
 
 export function Header() {
-  const [activeTimeframe, setActiveTimeframe] = useState<'5m' | '1h' | '6h' | '24h'>('24h');
+  const dispatch = useAppDispatch();
+  const queryClient = useQueryClient();
+  const activeTimeframe = useAppSelector(state => state.filters.timeframe);
   const [quickBuyAmount, setQuickBuyAmount] = useState('');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
 
   const handleTimeframeChange = (timeframe: '5m' | '1h' | '6h' | '24h') => {
-    setActiveTimeframe(timeframe);
+    dispatch(setTimeframe(timeframe));
+    
+    // Force React Query to refetch all token queries
+    queryClient.invalidateQueries({ queryKey: tokenQueryKeys.all });
   };
 
   const handleQuickBuyAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -113,21 +122,7 @@ export function Header() {
                     </span>
                   </div>
                   <div className="flex flex-row gap-[4px] justify-center items-center">
-                    <Image
-                      alt="SOL"
-                      width={16}
-                      height={16}
-                      src="/images/sol-fill.svg"
-                      className="w-4 h-4"
-                      onError={(e) => {
-                        // Fallback to a simple colored div if image fails
-                        const target = e.target as HTMLImageElement;
-                        target.style.display = 'none';
-                        const fallback = document.createElement('div');
-                        fallback.className = 'w-4 h-4 bg-purple-500 rounded-full';
-                        target.parentNode?.appendChild(fallback);
-                      }}
-                    />
+                    <div className="w-4 h-4 bg-purple-500 rounded-full flex-shrink-0"></div>
                     <span className="text-[14px] text-textPrimary font-medium group-hover:text-textPrimary transition-colors duration-150 ease-in-out cursor-pointer">
                       <span>0</span>
                     </span>
@@ -149,20 +144,7 @@ export function Header() {
                   onChange={handleQuickBuyAmountChange}
                 />
               </div>
-              <Image
-                alt="SOL"
-                width={16}
-                height={16}
-                src="/images/sol-fill.svg"
-                className="w-4 h-4"
-                onError={(e) => {
-                  const target = e.target as HTMLImageElement;
-                  target.style.display = 'none';
-                  const fallback = document.createElement('div');
-                  fallback.className = 'w-4 h-4 bg-purple-500 rounded-full';
-                  target.parentNode?.appendChild(fallback);
-                }}
-              />
+              <div className="w-4 h-4 bg-purple-500 rounded-full flex-shrink-0"></div>
               <div className="border-primaryStroke border-l-[1px] flex h-full pr-[3px] pl-[3px] gap-[6px] justify-center items-center cursor-pointer">
                 <Button
                   variant="ghost"

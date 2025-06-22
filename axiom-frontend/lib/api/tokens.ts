@@ -35,6 +35,13 @@ interface BackendTokenListResponse {
   };
 }
 
+interface BackendApiResponse {
+  success: boolean;
+  data: BackendTokenListResponse;
+  timestamp: number;
+  request_id: string;
+}
+
 /**
  * Transform backend token to frontend token format
  */
@@ -183,10 +190,20 @@ function formatAge(milliseconds: number): string {
 /**
  * Convert frontend filters to backend query parameters
  */
-function filtersToQueryParams(filters: TableFilters): Record<string, any> {
+function filtersToQueryParams(filters: Partial<TableFilters>): Record<string, any> {
   const params: Record<string, any> = {};
 
-  if (filters.timeframe) params.timeframe = filters.timeframe;
+  // Map frontend timeframes to backend timeframes
+  if (filters.timeframe) {
+    const timeframeMapping = {
+      '5m': '1h', // Map 5m to 1h since backend doesn't support 5m
+      '1h': '1h',
+      '6h': '24h', // Map 6h to 24h since backend doesn't support 6h
+      '24h': '24h',
+    };
+    params.timeframe = timeframeMapping[filters.timeframe] || '24h';
+  }
+  
   if (filters.minVolume) params.min_volume = filters.minVolume;
   if (filters.minMarketCap) params.min_market_cap = filters.minMarketCap;
   if (filters.minLiquidity) params.min_liquidity = filters.minLiquidity;
@@ -199,7 +216,7 @@ function filtersToQueryParams(filters: TableFilters): Record<string, any> {
       age: 'created_at',
       transactions: 'volume', // Use volume as proxy
     };
-    params.sort_by = sortMapping[filters.sortBy] || 'market_cap';
+    params.sort_by = sortMapping[filters.sortBy] || filters.sortBy;
   }
   if (filters.sortDirection) params.sort_direction = filters.sortDirection;
 
@@ -210,71 +227,107 @@ function filtersToQueryParams(filters: TableFilters): Record<string, any> {
  * Token API service class
  */
 export class TokenApiService {
-  /**
-   * Get paginated list of tokens with filtering and sorting
-   */
+  private baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+
   async getTokens(
     filters: Partial<TableFilters> = {},
     page = 1,
-    pageSize = 50
+    pageSize = 50,
+    cursor?: string
   ): Promise<TokenListResponse> {
-    const params = {
-      ...filtersToQueryParams(filters as TableFilters),
-      limit: pageSize,
-      // Note: Backend uses cursor-based pagination, frontend uses page-based
-      // This is a simplified mapping
-    };
+    try {
+      // Fetch more tokens than needed for client-side pagination
+      // Backend has a max limit of 100, so we'll use that
+      const apiLimit = 100; // Maximum allowed by backend
+      
+      const params = new URLSearchParams({
+        limit: apiLimit.toString(),
+        ...filtersToQueryParams(filters),
+      });
 
-    const response = await apiClient.get<BackendTokenListResponse>('/tokens', { params });
-    
-    return {
-      tokens: response.tokens.map(transformToken),
-      pagination: {
-        page,
-        pageSize,
-        total: response.pagination.total || 0,
-        totalPages: Math.ceil((response.pagination.total || 0) / pageSize),
-      },
-      filters: filters as TableFilters,
-    };
+      if (cursor) {
+        params.set('cursor', cursor);
+      }
+
+      const response = await apiClient.get<BackendTokenListResponse>(`/tokens?${params}`);
+
+      const { tokens, pagination } = response;
+      
+      return {
+        tokens: tokens.map(transformToken),
+        pagination: {
+          page,
+          pageSize,
+          total: pagination.total || 0,
+          totalPages: Math.ceil((pagination.total || 0) / pageSize),
+          cursor: pagination.next_cursor,
+          hasMore: pagination.has_more,
+        },
+        filters: filters as TableFilters,
+      };
+    } catch (error) {
+      console.error('Error fetching tokens:', error);
+      throw error;
+    }
   }
 
-  /**
-   * Search tokens by name or symbol
-   */
   async searchTokens(
     query: string,
     filters: Partial<TableFilters> = {},
     page = 1,
-    pageSize = 50
+    pageSize = 50,
+    cursor?: string
   ): Promise<TokenListResponse> {
-    const params = {
-      q: query,
-      ...filtersToQueryParams(filters as TableFilters),
-      limit: pageSize,
-    };
+    try {
+      // Fetch more tokens than needed for client-side pagination
+      // Backend has a max limit of 100
+      const apiLimit = 100;
+      
+      const params = new URLSearchParams({
+        q: query,
+        limit: apiLimit.toString(),
+        ...filtersToQueryParams(filters),
+      });
 
-    const response = await apiClient.get<BackendTokenListResponse>('/tokens/search', { params });
-    
-    return {
-      tokens: response.tokens.map(transformToken),
-      pagination: {
-        page,
-        pageSize,
-        total: response.pagination.total || 0,
-        totalPages: Math.ceil((response.pagination.total || 0) / pageSize),
-      },
-      filters: filters as TableFilters,
-    };
+      if (cursor) {
+        params.set('cursor', cursor);
+      }
+
+      const response = await apiClient.get<BackendTokenListResponse>(`/tokens/search?${params}`);
+
+      const { tokens, pagination } = response;
+      
+      return {
+        tokens: tokens.map(transformToken),
+        pagination: {
+          page,
+          pageSize,
+          total: pagination.total || 0,
+          totalPages: Math.ceil((pagination.total || 0) / pageSize),
+          cursor: pagination.next_cursor,
+          hasMore: pagination.has_more,
+        },
+        filters: filters as TableFilters,
+      };
+    } catch (error) {
+      console.error('Error searching tokens:', error);
+      throw error;
+    }
   }
 
   /**
    * Get trending tokens
    */
   async getTrendingTokens(limit = 50): Promise<{ tokens: Token[] }> {
-    const response = await apiClient.get<{ tokens: BackendToken[] }>('/tokens/trending', {
-      params: { limit },
+    // Fetch more tokens for client-side pagination
+    // Backend has a max limit of 100
+    const apiLimit = 100;
+    
+    const params = new URLSearchParams({
+      limit: apiLimit.toString(),
     });
+    
+    const response = await apiClient.get<{ tokens: BackendToken[] }>(`/tokens/trending?${params}`);
     
     return {
       tokens: response.tokens.map(transformToken),
@@ -285,16 +338,14 @@ export class TokenApiService {
    * Get token details by ID/address
    */
   async getTokenDetails(tokenId: string): Promise<Token> {
-    // This endpoint might not exist in backend, so we'll get it from the list
-    const response = await apiClient.get<BackendTokenListResponse>('/tokens', {
-      params: { token_address: tokenId, limit: 1 },
-    });
+    // Use search to find the token by address/symbol
+    const result = await this.searchTokens(tokenId, {}, 1, 1);
     
-    if (response.tokens.length === 0) {
+    if (result.tokens.length === 0) {
       throw new Error('Token not found');
     }
     
-    return transformToken(response.tokens[0]);
+    return result.tokens[0];
   }
 
   /**

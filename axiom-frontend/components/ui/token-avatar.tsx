@@ -111,13 +111,20 @@ export const SimpleTokenAvatar: React.FC<TokenAvatarProps> = ({
   return (
     <div 
       className={cn(
-        "flex items-center justify-center rounded-lg font-bold shrink-0",
+        "flex items-center justify-center rounded-lg font-bold shrink-0 relative",
         colors.bg,
         colors.text,
         sizeClass,
         className
       )}
-      style={{ width: size, height: size }}
+      style={{ 
+        width: `${size}px`, 
+        height: `${size}px`,
+        minWidth: `${size}px`,
+        minHeight: `${size}px`,
+        maxWidth: `${size}px`,
+        maxHeight: `${size}px`
+      }}
       title={name || symbol}
     >
       {initials}

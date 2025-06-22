@@ -16,6 +16,11 @@ interface FiltersState {
     max: number | null;
   };
   isFilterModalOpen: boolean;
+  timeframe: '5m' | '1h' | '6h' | '24h';
+  modals: {
+    filters: boolean;
+    settings: boolean;
+  };
 }
 
 const initialState: FiltersState = {
@@ -46,6 +51,11 @@ const initialState: FiltersState = {
     max: null,
   },
   isFilterModalOpen: false,
+  timeframe: '24h',
+  modals: {
+    filters: false,
+    settings: false,
+  },
 };
 
 const filtersSlice = createSlice({
@@ -65,6 +75,7 @@ const filtersSlice = createSlice({
     },
     
     setTimeframe: (state, action: PayloadAction<'5m' | '1h' | '6h' | '24h'>) => {
+      state.timeframe = action.payload;
       state.filters.timeframe = action.payload;
     },
     
@@ -94,10 +105,12 @@ const filtersSlice = createSlice({
     
     setSearchQuery: (state, action: PayloadAction<string>) => {
       state.searchQuery = action.payload;
+      // Note: We don't reset pagination here as it's handled client-side
     },
     
     setQuickFilter: (state, action: PayloadAction<'all' | 'trending' | 'new' | 'gainers' | 'losers' | 'volume'>) => {
       state.quickFilter = action.payload;
+      // Note: We don't reset pagination here as it's handled client-side
     },
     
     setPriceRange: (state, action: PayloadAction<{ min: number | null; max: number | null }>) => {

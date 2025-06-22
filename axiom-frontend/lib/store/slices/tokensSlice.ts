@@ -29,8 +29,10 @@ const initialState: TokensState = {
   },
   pagination: {
     page: 1,
-    pageSize: 50,
+    pageSize: 6,
     total: 0,
+    cursor: undefined,
+    hasMore: false,
   },
   lastUpdated: 0,
   priceUpdates: {},

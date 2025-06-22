@@ -36,6 +36,7 @@ export function useTokens(
   filters: Partial<TableFilters> = {},
   page = 1,
   pageSize = 50,
+  cursor?: string,
   options: { enabled?: boolean; keepPreviousData?: boolean } = {}
 ) {
   const dispatch = useAppDispatch();
@@ -46,7 +47,7 @@ export function useTokens(
     queryFn: async (): Promise<TokenListResponse> => {
       dispatch(setLoading({ isLoading: true, error: null }));
       try {
-        const result = await tokenApi.getTokens(filters, page, pageSize);
+        const result = await tokenApi.getTokens(filters, page, pageSize, cursor);
         
         // Update Redux store
         if (page === 1) {
@@ -63,7 +64,7 @@ export function useTokens(
         throw error;
       }
     },
-    staleTime: CACHE_TIMES.tokens,
+    staleTime: 0, // Always refetch when filters change
     gcTime: CACHE_TIMES.tokens * 5,
     enabled,
     refetchOnWindowFocus: false,
@@ -281,11 +282,23 @@ export function usePrefetchTokenDetails() {
 export function useTokensWithState() {
   const reduxState = useAppSelector(state => state.tokens);
   const filters = useAppSelector(state => state.filters.filters);
+  const searchQuery = useAppSelector(state => state.filters.searchQuery);
+  const quickFilter = useAppSelector(state => state.filters.quickFilter);
+  const timeframe = useAppSelector(state => state.filters.timeframe);
+  
+  // Combine all filters for the API call
+  const combinedFilters = useMemo(() => ({
+    ...filters,
+    timeframe,
+    searchQuery: searchQuery || undefined,
+    quickFilter: quickFilter !== 'all' ? quickFilter : undefined,
+  }), [filters, searchQuery, quickFilter, timeframe]);
   
   const queryResult = useTokens(
-    filters,
+    combinedFilters,
     reduxState.pagination.page,
-    reduxState.pagination.pageSize
+    reduxState.pagination.pageSize,
+    reduxState.pagination.cursor
   );
 
   return {
@@ -299,5 +312,7 @@ export function useTokensWithState() {
     searchQuery: reduxState.searchQuery,
     isRealTimeEnabled: reduxState.isRealTimeEnabled,
     priceUpdates: reduxState.priceUpdates,
+    // Add error from React Query if Redux doesn't have it
+    error: reduxState.loading.error || queryResult.error?.message || null,
   };
 } 

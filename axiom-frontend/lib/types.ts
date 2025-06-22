@@ -124,6 +124,8 @@ export interface PaginationState {
   page: number;
   pageSize: number;
   total: number;
+  cursor?: string;
+  hasMore: boolean;
 }
 
 export interface LoadingState {
@@ -193,6 +195,8 @@ export interface TokenListResponse {
     pageSize: number;
     total: number;
     totalPages: number;
+    cursor?: string;
+    hasMore: boolean;
   };
   filters: TableFilters;
 }

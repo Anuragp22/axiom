@@ -3,14 +3,16 @@
 import Image from 'next/image';
 import React, { useMemo, useCallback } from 'react';
 import { SimpleTokenAvatar } from '@/components/ui/token-avatar';
+import { TokenDetailsPopover } from '@/components/ui/token-details-popover';
 import { useTokensWithState } from '@/lib/hooks/useTokens';
 import { useRealTimeUpdates } from '@/lib/hooks/useWebSocket';
 import { useAppDispatch, useAppSelector } from '@/lib/store';
 import { setSortBy, setSortDirection } from '@/lib/store/slices/filtersSlice';
-import { toggleFavoriteToken, toggleTokenSelection } from '@/lib/store/slices/tokensSlice';
+import { setPagination, toggleFavoriteToken, toggleTokenSelection } from '@/lib/store/slices/tokensSlice';
 import { openBuy, openTokenDetails } from '@/lib/store/slices/modalsSlice';
 import { TokenTableSkeleton, PulseAnimation, DataStatusIndicator } from '@/components/ui/loading-states';
 import { ErrorBoundary, ErrorAlert } from '@/components/ui/error-boundary';
+
 import { Token } from '@/lib/types';
 
 interface TokenRowProps {
@@ -59,7 +61,7 @@ const TokenRow = ({
 
   return (
     <div 
-      className={`border-primaryStroke/50 border-b-[1px] bg-backgroundSecondary flex flex-col sm:flex-row w-full min-h-[120px] sm:min-h-[72px] lg:min-h-[88px] px-2 sm:px-[12px] py-2 sm:py-0 justify-start items-stretch sm:items-center active:bg-primaryStroke/50 sm:hover:bg-primaryStroke/50 cursor-pointer transition-colors duration-200 ${
+      className={`border-primaryStroke/50 border-b-[1px] bg-backgroundSecondary flex flex-col sm:flex-row w-full min-h-[120px] sm:min-h-[72px] lg:min-h-[88px] px-3 sm:px-[12px] py-3 sm:py-0 justify-start items-stretch sm:items-center active:bg-primaryStroke/50 sm:hover:bg-primaryStroke/50 cursor-pointer transition-colors duration-200 ${
         isSelected ? 'bg-primaryBlue/10 border-primaryBlue/50' : ''
       }`}
       onClick={() => onDetails?.(token.id)}
@@ -68,19 +70,19 @@ const TokenRow = ({
       <div className="flex sm:hidden flex-col w-full space-y-3">
         {/* Top Row - Token Info and Price */}
         <div className="flex flex-row justify-between items-center">
-          <div className="flex flex-row gap-3 items-center flex-1">
+          <div className="flex flex-row gap-3 items-center flex-1 min-w-0">
             <SimpleTokenAvatar 
               symbol={token.symbol}
               name={token.name}
-              size={32}
+              size={40}
               className="rounded-lg flex-shrink-0"
             />
-            <div className="flex flex-col min-w-0">
-              <div className="flex flex-row gap-2 items-center">
+            <div className="flex flex-col min-w-0 flex-1">
+              <div className="flex flex-row gap-2 items-center min-w-0">
                 <span className="text-textPrimary text-sm font-medium truncate">
                   {token.name}
                 </span>
-                <span className="text-textTertiary text-sm font-medium">
+                <span className="text-textTertiary text-sm font-medium truncate">
                   {token.symbol.length > 6 ? `${token.symbol.substring(0, 6)}...` : token.symbol}
                 </span>
               </div>
@@ -94,6 +96,7 @@ const TokenRow = ({
                     target="_blank" 
                     rel="noopener noreferrer" 
                     className="text-[#5DBCFF] hover:text-[#70c4ff] transition-colors"
+                    onClick={(e) => e.stopPropagation()}
                   >
                     <i className="ri-group-3-line text-sm"></i>
                   </a>
@@ -101,7 +104,7 @@ const TokenRow = ({
               </div>
             </div>
           </div>
-          <div className="flex flex-col items-end">
+          <div className="flex flex-col items-end flex-shrink-0">
             <PulseAnimation 
               isAnimating={priceUpdate?.animate}
               variant={priceUpdate?.change && priceUpdate.change > 0 ? "green" : "red"}
@@ -134,9 +137,9 @@ const TokenRow = ({
       <div className="hidden sm:flex flex-row flex-grow w-full h-full items-center">
         {/* Pair Info */}
         <div className="min-w-0 flex flex-row w-[200px] lg:w-[320px] px-[12px] gap-[12px] justify-start items-center">
-          <div className="relative w-[40px] sm:w-[62px] h-[40px] sm:h-[62px] justify-center items-center">
+          <div className="relative w-[40px] sm:w-[52px] lg:w-[62px] h-[40px] sm:h-[52px] lg:h-[62px] justify-center items-center flex-shrink-0">
             {/* AMM Badge */}
-            <div className="flex [background:linear-gradient(219deg,#FFD700_0%,#DAA520_48.97%,#B8860B_48.98%,#996515_100%)] absolute top-[32px] sm:top-[53px] left-[32px] sm:left-[53px] p-[1px] w-[14px] sm:w-[16px] h-[14px] sm:h-[16px] justify-center items-center rounded-full z-30">
+            <div className="flex [background:linear-gradient(219deg,#FFD700_0%,#DAA520_48.97%,#B8860B_48.98%,#996515_100%)] absolute top-[28px] sm:top-[38px] lg:top-[53px] left-[28px] sm:left-[38px] lg:left-[53px] p-[1px] w-[14px] sm:w-[16px] h-[14px] sm:h-[16px] justify-center items-center rounded-full z-30">
               <div className="flex justify-center items-center bg-background absolute w-[12px] sm:w-[14px] h-[12px] sm:h-[14px] rounded-full z-30">
                 <div className="w-[8px] sm:w-[10px] h-[8px] sm:h-[10px] rounded-full bg-gradient-to-br from-yellow-400 to-yellow-600"></div>
               </div>
@@ -145,8 +148,8 @@ const TokenRow = ({
             {/* Token Image */}
             <div className="bg-[#53D38E]/20 absolute flex p-[1px] justify-start items-center rounded-[4px] z-20">
               <div className="bg-backgroundSecondary flex p-[2px] justify-start items-center rounded-[3px]">
-                <div className="w-[36px] sm:w-[56px] h-[36px] sm:h-[56px] flex-shrink-0 group/image relative">
-                  <div className="pointer-events-none border-textPrimary/10 border-[1px] absolute w-[36px] sm:w-[56px] h-[36px] sm:h-[56px] z-10 rounded-[1px]"></div>
+                <div className="w-[36px] sm:w-[46px] lg:w-[56px] h-[36px] sm:h-[46px] lg:h-[56px] flex-shrink-0 group/image relative">
+                  <div className="pointer-events-none border-textPrimary/10 border-[1px] absolute w-full h-full z-10 rounded-[1px]"></div>
                   <div className="w-full h-full relative">
                     <SimpleTokenAvatar 
                       symbol={token.symbol}
@@ -154,16 +157,21 @@ const TokenRow = ({
                       size={36}
                       className="rounded-[1px] w-full h-full"
                     />
-                    <button className="absolute inset-0 bg-black/50 opacity-0 group-hover/image:opacity-100 transition-opacity duration-200 flex items-center justify-center">
-                      <i className="ri-camera-line text-white text-[24px]"></i>
-                    </button>
+                    <TokenDetailsPopover token={token}>
+                      <button 
+                        className="absolute inset-0 bg-black/50 opacity-0 group-hover/image:opacity-100 transition-opacity duration-200 flex items-center justify-center"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <i className="ri-camera-line text-white text-[16px] sm:text-[20px] lg:text-[24px]"></i>
+                      </button>
+                    </TokenDetailsPopover>
                   </div>
                 </div>
               </div>
             </div>
             
             {/* Background gradient */}
-            <div className="[background:linear-gradient(219deg,#FFD700_0%,#DAA520_48.97%,#B8860B_48.98%,#996515_100%)] absolute top-0 left-0 w-[42px] sm:w-[62px] h-[42px] sm:h-[62px] rounded-[4px] z-10"></div>
+            <div className="[background:linear-gradient(219deg,#FFD700_0%,#DAA520_48.97%,#B8860B_48.98%,#996515_100%)] absolute top-0 left-0 w-full h-full rounded-[4px] z-10"></div>
           </div>
           
           {/* Token Info */}
@@ -394,9 +402,9 @@ export const TokenTable = () => {
   const searchQuery = useAppSelector(state => state.filters.searchQuery);
   const quickFilter = useAppSelector(state => state.filters.quickFilter);
 
-  // Memoized filtered and sorted tokens
-  const sortedTokens = useMemo(() => {
-    if (!tokens.length) return [];
+  // Memoized filtered and sorted tokens with client-side pagination
+  const { sortedTokens, totalFilteredCount, paginatedTokens } = useMemo(() => {
+    if (!tokens.length) return { sortedTokens: [], totalFilteredCount: 0, paginatedTokens: [] };
 
     let filteredTokens = [...tokens];
 
@@ -457,7 +465,7 @@ export const TokenTable = () => {
     }
 
     // Apply sorting
-    return filteredTokens.sort((a, b) => {
+    const sorted = filteredTokens.sort((a, b) => {
       const direction = filters.sortDirection === 'asc' ? 1 : -1;
       
       switch (filters.sortBy) {
@@ -477,7 +485,13 @@ export const TokenTable = () => {
           return 0;
       }
     });
-  }, [tokens, filters, searchQuery, quickFilter]);
+
+    return {
+      sortedTokens: sorted,
+      totalFilteredCount: filteredTokens.length,
+      paginatedTokens: sorted // Show all filtered tokens instead of paginated
+    };
+      }, [tokens, filters, searchQuery, quickFilter]);
 
   const SortableHeader = ({ field, children }: { field: string; children: React.ReactNode }) => {
     const isActive = filters.sortBy === field;
@@ -515,18 +529,20 @@ export const TokenTable = () => {
     <ErrorBoundary level="component">
       <div className="w-full relative">
         {/* Connection Status */}
-        <div className="flex justify-between items-center mb-2">
+        {/* <div className="flex justify-between items-center mb-2">
           <DataStatusIndicator 
             isConnected={isConnected}
             isSimulating={isSimulating}
           />
           <div className="text-xs text-textSecondary">
-            {tokens.length} tokens • Updated live
+            {totalFilteredCount} of {tokens.length} tokens • Updated live
           </div>
-        </div>
+        </div> */}
 
-        {/* Table Header - Desktop Only */}
-        <div className="hidden sm:flex border-primaryStroke/50 border-b-[1px] bg-backgroundSecondary flex-row w-full h-[48px] min-h-[48px] max-h-[48px] px-[12px] justify-start items-center">
+        {/* Table Container with Fixed Height */}
+        <div className="border border-primaryStroke/50 rounded-lg bg-backgroundSecondary overflow-hidden">
+          {/* Table Header - Desktop Only */}
+          <div className="hidden sm:flex border-primaryStroke/50 border-b-[1px] bg-backgroundSecondary flex-row w-full h-[48px] min-h-[48px] max-h-[48px] px-[12px] justify-start items-center sticky top-0 z-10">
           <div className="flex flex-row flex-grow w-full h-full items-center">
             {/* Pair Info Header */}
             <div className="min-w-0 flex flex-row w-[200px] lg:w-[320px] px-[12px] gap-[12px] justify-start items-center">
@@ -571,38 +587,43 @@ export const TokenTable = () => {
           </div>
         </div>
 
-        {/* Table Body */}
-        {loading.isLoading && tokens.length === 0 ? (
-          <TokenTableSkeleton rows={10} />
-        ) : (
-          <div className="w-full">
-            {sortedTokens.map((token) => (
-              <TokenRow
-                key={token.id}
-                token={token}
-                isSelected={selectedTokens.includes(token.id)}
-                priceUpdate={priceUpdates[token.id]}
-                onSelect={handleTokenSelect}
-                onFavorite={handleFavorite}
-                onBuy={handleBuy}
-                onDetails={handleDetails}
-              />
-            ))}
-          </div>
-        )}
+          {/* Scrollable Table Body */}
+          <div className="h-[600px] max-h-[600px] overflow-y-auto table-scrollbar">
+            {loading.isLoading && tokens.length === 0 ? (
+              <TokenTableSkeleton rows={10} />
+            ) : (
+              <div className="w-full">
+                {paginatedTokens.map((token) => (
+                  <TokenRow
+                    key={token.id}
+                    token={token}
+                    isSelected={selectedTokens.includes(token.id)}
+                    priceUpdate={priceUpdates[token.id]}
+                    onSelect={handleTokenSelect}
+                    onFavorite={handleFavorite}
+                    onBuy={handleBuy}
+                    onDetails={handleDetails}
+                  />
+                ))}
+              </div>
+            )}
 
-        {/* Empty State */}
-        {!loading.isLoading && tokens.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-16 text-center">
-            <div className="w-16 h-16 mb-4 bg-primaryStroke/20 rounded-full flex items-center justify-center">
-              <i className="ri-search-line text-2xl text-textSecondary" />
-            </div>
-            <h3 className="text-lg font-semibold text-textPrimary mb-2">No tokens found</h3>
-            <p className="text-textSecondary max-w-md">
-              Try adjusting your filters or search criteria to find more tokens.
-            </p>
+            {/* Empty State */}
+            {!loading.isLoading && totalFilteredCount === 0 && (
+              <div className="flex flex-col items-center justify-center py-16 text-center">
+                <div className="w-16 h-16 mb-4 bg-primaryStroke/20 rounded-full flex items-center justify-center">
+                  <i className="ri-search-line text-2xl text-textSecondary" />
+                </div>
+                <h3 className="text-lg font-semibold text-textPrimary mb-2">No tokens found</h3>
+                <p className="text-textSecondary max-w-md">
+                  Try adjusting your filters or search criteria to find more tokens.
+                </p>
+              </div>
+            )}
           </div>
-        )}
+        </div>
+
+
       </div>
     </ErrorBoundary>
   );

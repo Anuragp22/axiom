@@ -56,10 +56,16 @@ class HttpClient {
         
         // Log request in development
         if (process.env.NODE_ENV === 'development') {
-          console.log(`🚀 API Request: ${config.method?.toUpperCase()} ${config.url}`, {
-            params: config.params,
-            data: config.data,
-          });
+          const logData: any = {};
+          if (config.params && Object.keys(config.params).length > 0) {
+            logData.params = config.params;
+          }
+          if (config.data) {
+            logData.data = config.data;
+          }
+          console.log(`🚀 API Request: ${config.method?.toUpperCase()} ${config.url}`, 
+            Object.keys(logData).length > 0 ? logData : 'No params/data'
+          );
         }
         
         return config;
@@ -73,13 +79,13 @@ class HttpClient {
     // Response interceptor
     this.client.interceptors.response.use(
       (response: AxiosResponse<ApiResponse>) => {
-        // Log response in development
-        if (process.env.NODE_ENV === 'development') {
-          console.log(`✅ API Response: ${response.config.method?.toUpperCase()} ${response.config.url}`, {
-            status: response.status,
-            data: response.data,
-          });
-        }
+        // // Log response in development
+        // if (process.env.NODE_ENV === 'development') {
+        //   console.log(`✅ API Response: ${response.config.method?.toUpperCase()} ${response.config.url}`, {
+        //     status: response.status,
+        //     data: response.data,
+        //   });
+        // }
         
         return response;
       },
