@@ -1,18 +1,21 @@
 import { DexScreenerService } from './dexscreener.service';
 import { JupiterService } from './jupiter.service';
+import { RedisCacheService } from './redis-cache.service';
 import { Token, TokenFilters, TokenSortOptions, PaginationOptions, TokenListResponse } from '@/types/token';
 import logger from '@/utils/logger';
 import { ValidationError } from '@/utils/errors';
+import config from '@/config';
 
 export class TokenAggregationService {
   private dexScreenerService: DexScreenerService;
   private jupiterService: JupiterService;
-  private cache: Map<string, { data: Token[]; timestamp: number }> = new Map();
-  private readonly CACHE_TTL = 30 * 1000; // 30 seconds
+  private redisCache: RedisCacheService;
+  private readonly CACHE_TTL = config.cache.ttl; // Use config value
 
   constructor() {
     this.dexScreenerService = new DexScreenerService();
     this.jupiterService = new JupiterService();
+    this.redisCache = new RedisCacheService();
   }
 
   async getTokens(
@@ -127,20 +130,19 @@ export class TokenAggregationService {
 
   private async getCachedOrFreshTokens(): Promise<Token[]> {
     const cacheKey = 'all_tokens';
-    const cached = this.cache.get(cacheKey);
-
-    if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
-      logger.debug('Returning cached token data');
-      return cached.data;
+    
+    // Try to get from Redis cache first
+    const cached = await this.redisCache.get<Token[]>(cacheKey);
+    if (cached) {
+      logger.debug('Returning cached token data from Redis');
+      return cached;
     }
 
-    logger.debug('Fetching fresh token data');
+    logger.debug('Cache miss - fetching fresh token data');
     const freshTokens = await this.fetchTokensFromAllSources();
     
-    this.cache.set(cacheKey, {
-      data: freshTokens,
-      timestamp: Date.now(),
-    });
+    // Store in Redis cache with TTL
+    await this.redisCache.set(cacheKey, freshTokens, this.CACHE_TTL);
 
     return freshTokens;
   }
@@ -263,15 +265,25 @@ export class TokenAggregationService {
     return result;
   }
 
-  clearCache(): void {
-    this.cache.clear();
-    logger.info('Token cache cleared');
+  async clearCache(): Promise<void> {
+    await this.redisCache.clear();
+    logger.info('Redis token cache cleared');
   }
 
-  getCacheStats(): { size: number; entries: string[] } {
+  async getCacheStats(): Promise<{ 
+    connected: boolean; 
+    memory: string; 
+    keys: number; 
+    size: number; 
+    entries: string[] 
+  }> {
+    const redisStats = await this.redisCache.getStats();
     return {
-      size: this.cache.size,
-      entries: Array.from(this.cache.keys()),
+      connected: redisStats.connected,
+      memory: redisStats.memory,
+      keys: redisStats.keys,
+      size: redisStats.keys, // For backward compatibility
+      entries: [], // Redis doesn't easily return all keys, would be expensive
     };
   }
 }

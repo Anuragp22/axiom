@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { DexScreenerService } from '@/services/dexscreener.service';
 import { JupiterService } from '@/services/jupiter.service';
+import { RedisCacheService } from '@/services/redis-cache.service';
 import logger from '@/utils/logger';
 
 const router = Router();
@@ -11,9 +12,13 @@ interface HealthResponse {
   services: {
     dexscreener: { status: 'up' | 'down'; error?: string };
     jupiter: { status: 'up' | 'down'; error?: string };
+    redis: { status: 'up' | 'down'; error?: string };
   };
   cache: {
     status: 'up' | 'down';
+    connected: boolean;
+    memory?: string;
+    keys?: number;
   };
 }
 
@@ -25,25 +30,28 @@ router.get('/', async (req, res) => {
     // Initialize services
     const dexScreenerService = new DexScreenerService();
     const jupiterService = new JupiterService();
+    const redisCacheService = new RedisCacheService();
 
     // Check service health in parallel
-    const [dexScreenerHealth, jupiterHealth] = await Promise.allSettled([
+    const [dexScreenerHealth, jupiterHealth, redisHealth] = await Promise.allSettled([
       checkServiceHealth('DexScreener', async () => {
         // Simple health check - try to search for a common token
         const tokens = await dexScreenerService.searchTokens('SOL');
         return tokens.length > 0;
       }),
       checkServiceHealth('Jupiter', () => jupiterService.healthCheck()),
+      checkServiceHealth('Redis', () => redisCacheService.ping()),
     ]);
 
     // Build response
     const services: HealthResponse['services'] = {
       dexscreener: { status: 'down' },
       jupiter: { status: 'down' },
+      redis: { status: 'down' },
     };
 
     let healthyCount = 0;
-    const totalServices = 2;
+    const totalServices = 3;
 
     // Process DexScreener
     if (dexScreenerHealth.status === 'fulfilled') {
@@ -61,6 +69,17 @@ router.get('/', async (req, res) => {
       services.jupiter = { status: 'down', error: 'Health check failed' };
     }
 
+    // Process Redis
+    if (redisHealth.status === 'fulfilled') {
+      services.redis = redisHealth.value;
+      if (redisHealth.value.status === 'up') healthyCount++;
+    } else {
+      services.redis = { status: 'down', error: 'Health check failed' };
+    }
+
+    // Get Redis cache stats
+    const cacheStats = await redisCacheService.getStats();
+
     // Determine overall status
     const overallStatus: HealthResponse['status'] = 
       healthyCount === totalServices ? 'healthy' :
@@ -71,7 +90,10 @@ router.get('/', async (req, res) => {
       timestamp: new Date().toISOString(),
       services,
       cache: {
-        status: 'up', // Simple cache status - could be enhanced
+        status: cacheStats.connected ? 'up' : 'down',
+        connected: cacheStats.connected,
+        memory: cacheStats.memory,
+        keys: cacheStats.keys,
       },
     };
 
@@ -98,9 +120,11 @@ router.get('/', async (req, res) => {
       services: {
         dexscreener: { status: 'down', error: 'Health check error' },
         jupiter: { status: 'down', error: 'Health check error' },
+        redis: { status: 'down', error: 'Health check error' },
       },
       cache: {
         status: 'down',
+        connected: false,
       },
     };
 

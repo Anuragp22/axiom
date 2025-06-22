@@ -136,7 +136,7 @@ router.get(
  */
 router.post('/cache/clear', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    tokenService.clearCache();
+    await tokenService.clearCache();
     
     const response: ApiResponse = {
       success: true,
@@ -157,7 +157,7 @@ router.post('/cache/clear', async (req: Request, res: Response, next: NextFuncti
  */
 router.get('/cache/stats', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const stats = tokenService.getCacheStats();
+    const stats = await tokenService.getCacheStats();
     
     const response: ApiResponse = {
       success: true,

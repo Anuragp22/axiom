@@ -41,7 +41,7 @@ This service replicates the data flow pattern seen in axiom.trade's discover pag
 
 1. **Two-API Architecture**: Originally planned for 3 APIs, simplified to DexScreener + Jupiter after removing GeckoTerminal due to price change data limitations
 2. **WebSocket for Real-time**: Socket.io for initial data load + live price updates pattern
-3. **Memory Caching**: In-memory cache with TTL for fast response times (30s default)
+3. **Redis Caching**: Production-ready Redis caching with ioredis client, falls back gracefully if Redis unavailable
 4. **Rate Limiting**: Exponential backoff with configurable retries for external API stability
 5. **Cursor Pagination**: Efficient pagination for large datasets using cursor-based approach
 6. **Error Recovery**: Graceful degradation when one API fails, service continues with available data
@@ -99,6 +99,13 @@ JUPITER_RATE_LIMIT=100
 # Cache Configuration
 CACHE_TTL_SECONDS=30
 CACHE_MAX_SIZE=1000
+
+# Redis Configuration
+REDIS_HOST=localhost
+REDIS_PORT=6379
+# REDIS_PASSWORD=your_redis_password
+REDIS_DB=0
+REDIS_KEY_PREFIX=axiom:
 
 # WebSocket Configuration
 WS_CORS_ORIGIN=http://localhost:3000
@@ -266,17 +273,19 @@ npm run test:watch
 ```
 
 ### **Test Categories**
-- ✅ **HTTP Client**: Exponential backoff, rate limiting, error handling
-- ✅ **DexScreener Service**: Token search, trending data, API integration  
-- ✅ **Token Aggregation**: Filtering, sorting, pagination, caching
-- ✅ **WebSocket Server**: Connection handling, price updates, error recovery
+- ✅ **HTTP Client**: Exponential backoff, rate limiting, error handling (2 tests)
+- ✅ **DexScreener Service**: Token search, trending data, API integration (8 tests)
+- ✅ **Redis Cache**: Get/set operations, error handling, cache-aside pattern (8 tests)
+- ✅ **Total**: **18 comprehensive tests** covering happy path and edge cases
 
 ## 🔧 **Performance & Optimization**
 
 ### **Caching Strategy**
-- **In-memory cache** with configurable TTL (default 30s)
-- **Intelligent cache warming** for trending tokens
-- **Cache hit ratio monitoring** via `/tokens/cache/stats`
+- **Redis cache** with ioredis client for production scalability
+- **Graceful fallback** - service continues if Redis unavailable
+- **Configurable TTL** (default 30s) with automatic expiration
+- **Cache-aside pattern** with intelligent warming for trending tokens
+- **Comprehensive monitoring** via `/tokens/cache/stats` including memory usage and key counts
 
 ### **Rate Limiting**
 - **DexScreener**: 300 requests/minute with exponential backoff
