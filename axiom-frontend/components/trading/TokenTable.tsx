@@ -1,35 +1,42 @@
 'use client';
 
 import Image from 'next/image';
-import React from 'react';
-
-// Mock token data
-const mockToken = {
-  id: '1',
-  name: 'PepeCoin',
-  symbol: 'PEPE',
-  imageUrl: 'https://images.rawpixel.com/image_800/cHJpdmF0ZS9sci9pbWFnZXMvd2Vic2l0ZS8yMDIyLTA0L3YxMTYxLWItMDQ0LWwyOHRmc3IzLmpwZw.jpg',
-  marketCap: 1250000,
-  priceChange24h: 12.45,
-  liquidity: 850000,
-  volume24h: 420000,
-  transactions24h: 1250,
-  buys24h: 780,
-  sells24h: 470,
-  age: '2h 15m',
-  communityUrl: 'https://t.me/pepecoin',
-  audit: {
-    riskScore: 15,
-    burnPercentage: 85,
-    isPaid: false
-  }
-};
+import React, { useMemo, useCallback } from 'react';
+import { SimpleTokenAvatar } from '@/components/ui/token-avatar';
+import { useTokensWithState } from '@/lib/hooks/useTokens';
+import { useRealTimeUpdates } from '@/lib/hooks/useWebSocket';
+import { useAppDispatch, useAppSelector } from '@/lib/store';
+import { setSortBy, setSortDirection } from '@/lib/store/slices/filtersSlice';
+import { toggleFavoriteToken, toggleTokenSelection } from '@/lib/store/slices/tokensSlice';
+import { openBuy, openTokenDetails } from '@/lib/store/slices/modalsSlice';
+import { TokenTableSkeleton, PulseAnimation, DataStatusIndicator } from '@/components/ui/loading-states';
+import { ErrorBoundary, ErrorAlert } from '@/components/ui/error-boundary';
+import { Token } from '@/lib/types';
 
 interface TokenRowProps {
-  token: typeof mockToken;
+  token: Token;
+  isSelected?: boolean;
+  priceUpdate?: {
+    price: number;
+    change: number;
+    timestamp: number;
+    animate: boolean;
+  };
+  onSelect?: (tokenId: string) => void;
+  onFavorite?: (tokenId: string) => void;
+  onBuy?: (token: Token) => void;
+  onDetails?: (tokenId: string) => void;
 }
 
-const TokenRow = ({ token }: TokenRowProps) => {
+const TokenRow = ({ 
+  token, 
+  isSelected = false, 
+  priceUpdate,
+  onSelect,
+  onFavorite,
+  onBuy,
+  onDetails 
+}: TokenRowProps) => {
   const formatNumber = (num: number) => {
     if (num >= 1000000) {
       return `$${(num / 1000000).toFixed(1)}M`;
@@ -51,10 +58,82 @@ const TokenRow = ({ token }: TokenRowProps) => {
   };
 
   return (
-    <div className="whitespace-nowrap border-primaryStroke/50 border-b-[1px] bg-backgroundSecondary flex flex-row flex-grow w-full max-w-[1420px] min-w-[980px] sm:min-w-[1164px] h-[72px] sm:h-[88px] min-h-[72px] sm:min-h-[88px] max-h-[72px] sm:max-h-[88px] px-0 sm:px-[12px] justify-start items-center rounded-b-[0px] active:bg-primaryStroke/50 sm:hover:bg-primaryStroke/50 cursor-pointer">
-      <div className="flex flex-row flex-grow w-full h-full items-center">
+    <div 
+      className={`border-primaryStroke/50 border-b-[1px] bg-backgroundSecondary flex flex-col sm:flex-row w-full min-h-[120px] sm:min-h-[72px] lg:min-h-[88px] px-2 sm:px-[12px] py-2 sm:py-0 justify-start items-stretch sm:items-center active:bg-primaryStroke/50 sm:hover:bg-primaryStroke/50 cursor-pointer transition-colors duration-200 ${
+        isSelected ? 'bg-primaryBlue/10 border-primaryBlue/50' : ''
+      }`}
+      onClick={() => onDetails?.(token.id)}
+    >
+      {/* Mobile Layout */}
+      <div className="flex sm:hidden flex-col w-full space-y-3">
+        {/* Top Row - Token Info and Price */}
+        <div className="flex flex-row justify-between items-center">
+          <div className="flex flex-row gap-3 items-center flex-1">
+            <SimpleTokenAvatar 
+              symbol={token.symbol}
+              name={token.name}
+              size={32}
+              className="rounded-lg flex-shrink-0"
+            />
+            <div className="flex flex-col min-w-0">
+              <div className="flex flex-row gap-2 items-center">
+                <span className="text-textPrimary text-sm font-medium truncate">
+                  {token.name}
+                </span>
+                <span className="text-textTertiary text-sm font-medium">
+                  {token.symbol.length > 6 ? `${token.symbol.substring(0, 6)}...` : token.symbol}
+                </span>
+              </div>
+              <div className="flex flex-row gap-2 items-center">
+                <span className="text-primaryGreen text-xs font-medium">
+                  {token.age}
+                </span>
+                {token.communityUrl && (
+                  <a 
+                    href={token.communityUrl} 
+                    target="_blank" 
+                    rel="noopener noreferrer" 
+                    className="text-[#5DBCFF] hover:text-[#70c4ff] transition-colors"
+                  >
+                    <i className="ri-group-3-line text-sm"></i>
+                  </a>
+                )}
+              </div>
+            </div>
+          </div>
+          <div className="flex flex-col items-end">
+            <PulseAnimation 
+              isAnimating={priceUpdate?.animate}
+              variant={priceUpdate?.change && priceUpdate.change > 0 ? "green" : "red"}
+            >
+              <span className={`text-sm font-medium ${getChangeColor(token.priceChange24h)}`}>
+                {token.priceChange24h >= 0 ? '+' : ''}{token.priceChange24h.toFixed(2)}%
+              </span>
+            </PulseAnimation>
+          </div>
+        </div>
+
+        {/* Bottom Row - Stats */}
+        <div className="grid grid-cols-3 gap-4 text-xs">
+          <div className="flex flex-col">
+            <span className="text-textSecondary font-medium mb-1">Market Cap</span>
+            <span className="text-textPrimary font-medium">{formatNumber(token.marketCap)}</span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-textSecondary font-medium mb-1">Liquidity</span>
+            <span className="text-textPrimary font-medium">{formatNumber(token.liquidity)}</span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-textSecondary font-medium mb-1">Volume</span>
+            <span className="text-textPrimary font-medium">{formatNumber(token.volume24h)}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Desktop Layout */}
+      <div className="hidden sm:flex flex-row flex-grow w-full h-full items-center">
         {/* Pair Info */}
-        <div className="min-w-0 flex flex-row w-[224px] sm:w-[320px] px-[12px] gap-[12px] justify-start items-center">
+        <div className="min-w-0 flex flex-row w-[200px] lg:w-[320px] px-[12px] gap-[12px] justify-start items-center">
           <div className="relative w-[40px] sm:w-[62px] h-[40px] sm:h-[62px] justify-center items-center">
             {/* AMM Badge */}
             <div className="flex [background:linear-gradient(219deg,#FFD700_0%,#DAA520_48.97%,#B8860B_48.98%,#996515_100%)] absolute top-[32px] sm:top-[53px] left-[32px] sm:left-[53px] p-[1px] w-[14px] sm:w-[16px] h-[14px] sm:h-[16px] justify-center items-center rounded-full z-30">
@@ -69,19 +148,11 @@ const TokenRow = ({ token }: TokenRowProps) => {
                 <div className="w-[36px] sm:w-[56px] h-[36px] sm:h-[56px] flex-shrink-0 group/image relative">
                   <div className="pointer-events-none border-textPrimary/10 border-[1px] absolute w-[36px] sm:w-[56px] h-[36px] sm:h-[56px] z-10 rounded-[1px]"></div>
                   <div className="w-full h-full relative">
-                    <Image 
-                      alt={`${token.name} coin`}
-                      loading="eager" 
-                      width="36" 
-                      height="36" 
-                      decoding="async" 
-                      className="rounded-[1px] w-full h-full object-cover" 
-                      src={token.imageUrl}
-                      style={{ color: 'transparent', objectFit: 'cover' }}
-                      onError={(e) => {
-                        const target = e.target as HTMLImageElement;
-                        target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzYiIGhlaWdodD0iMzYiIHZpZXdCb3g9IjAgMCAzNiAzNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjM2IiBoZWlnaHQ9IjM2IiByeD0iNCIgZmlsbD0iIzNBM0E0MiIvPgo8dGV4dCB4PSIxOCIgeT0iMjIiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNCIgZmlsbD0iI0ZGRkZGRiIgdGV4dC1hbmNob3I9Im1pZGRsZSI+VDwvdGV4dD4KICA8L3N2Zz4=';
-                      }}
+                    <SimpleTokenAvatar 
+                      symbol={token.symbol}
+                      name={token.name}
+                      size={36}
+                      className="rounded-[1px] w-full h-full"
                     />
                     <button className="absolute inset-0 bg-black/50 opacity-0 group-hover/image:opacity-100 transition-opacity duration-200 flex items-center justify-center">
                       <i className="ri-camera-line text-white text-[24px]"></i>
@@ -139,26 +210,36 @@ const TokenRow = ({ token }: TokenRowProps) => {
         </div>
 
         {/* Market Cap */}
-        <div className="min-w-0 flex flex-1 flex-row px-[12px] justify-start items-center">
+        <div className="min-w-0 flex flex-1 flex-row px-[8px] lg:px-[12px] justify-start items-center">
           <div className="flex flex-col gap-[4px] justify-start items-start">
             <div className="flex flex-row gap-[4px] justify-start items-center">
-              <span className="text-textPrimary text-[12px] sm:text-[14px] font-medium">
-                {formatNumber(token.marketCap)}
-              </span>
+              <PulseAnimation 
+                isAnimating={priceUpdate?.animate && priceUpdate.change > 0}
+                variant={priceUpdate?.change && priceUpdate.change > 0 ? "green" : "red"}
+              >
+                <span className="text-textPrimary text-[11px] lg:text-[14px] font-medium">
+                  {formatNumber(token.marketCap)}
+                </span>
+              </PulseAnimation>
             </div>
             <div className="flex flex-row gap-[4px] justify-start items-center">
-              <span className={`font-GeistMono text-[12px] sm:text-[12px] font-medium ${getChangeColor(token.priceChange24h)}`}>
-                {token.priceChange24h >= 0 ? '+' : ''}{token.priceChange24h.toFixed(2)}%
-              </span>
+              <PulseAnimation 
+                isAnimating={priceUpdate?.animate}
+                variant={priceUpdate?.change && priceUpdate.change > 0 ? "green" : "red"}
+              >
+                <span className={`font-GeistMono text-[10px] lg:text-[12px] font-medium ${getChangeColor(token.priceChange24h)}`}>
+                  {token.priceChange24h >= 0 ? '+' : ''}{token.priceChange24h.toFixed(2)}%
+                </span>
+              </PulseAnimation>
             </div>
           </div>
         </div>
 
         {/* Liquidity */}
-        <div className="min-w-0 flex flex-1 flex-row px-[12px] justify-start items-center">
+        <div className="min-w-0 flex flex-1 flex-row px-[8px] lg:px-[12px] justify-start items-center">
           <div className="flex flex-col gap-[4px] justify-start items-start">
             <div className="flex flex-row gap-[4px] justify-start items-center">
-              <span className="text-textPrimary text-[12px] sm:text-[14px] font-medium">
+              <span className="text-textPrimary text-[11px] lg:text-[14px] font-medium">
                 {formatNumber(token.liquidity)}
               </span>
             </div>
@@ -166,10 +247,10 @@ const TokenRow = ({ token }: TokenRowProps) => {
         </div>
 
         {/* Volume */}
-        <div className="min-w-0 flex flex-1 flex-row px-[12px] justify-start items-center">
+        <div className="min-w-0 flex flex-1 flex-row px-[8px] lg:px-[12px] justify-start items-center">
           <div className="flex flex-col gap-[4px] justify-start items-start">
             <div className="flex flex-row gap-[4px] justify-start items-center">
-              <span className="text-textPrimary text-[12px] sm:text-[14px] font-medium">
+              <span className="text-textPrimary text-[11px] lg:text-[14px] font-medium">
                 {formatNumber(token.volume24h)}
               </span>
             </div>
@@ -233,16 +314,31 @@ const TokenRow = ({ token }: TokenRowProps) => {
         <div className="min-w-0 flex flex-1 flex-row px-[12px] justify-start items-center">
           <div className="flex flex-row gap-[8px] justify-start items-center">
             <button 
-              onClick={() => console.log('Buy clicked', token.symbol)}
+              onClick={(e) => {
+                e.stopPropagation();
+                onBuy?.(token);
+              }}
               className="bg-primaryBlue hover:bg-primaryBlueHover text-textPrimary font-medium py-[6px] px-[16px] rounded-[4px] text-[12px] sm:text-[14px] transition-colors duration-150"
             >
               Buy
             </button>
             <button 
-              onClick={() => console.log('Favorite clicked', token.symbol)}
+              onClick={(e) => {
+                e.stopPropagation();
+                onFavorite?.(token.id);
+              }}
               className="text-textSecondary hover:text-primaryBlue transition-colors duration-150"
             >
               <i className="ri-star-line text-[16px] sm:text-[18px]"></i>
+            </button>
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelect?.(token.id);
+              }}
+              className="text-textSecondary hover:text-primaryBlue transition-colors duration-150"
+            >
+              <i className={`text-[16px] sm:text-[18px] ${isSelected ? 'ri-checkbox-fill text-primaryBlue' : 'ri-checkbox-blank-line'}`}></i>
             </button>
           </div>
         </div>
@@ -252,64 +348,262 @@ const TokenRow = ({ token }: TokenRowProps) => {
 };
 
 export const TokenTable = () => {
+  const dispatch = useAppDispatch();
+  const {
+    tokens,
+    loading,
+    error,
+    selectedTokens,
+    favoriteTokens,
+    priceUpdates,
+  } = useTokensWithState();
+  
+  const filters = useAppSelector(state => state.filters.filters);
+  const { isConnected, isSimulating } = useRealTimeUpdates();
+
+  // Memoized handlers
+  const handleSort = useCallback((field: string) => {
+    const currentSort = filters.sortBy;
+    const currentDirection = filters.sortDirection;
+    
+    if (currentSort === field) {
+      dispatch(setSortDirection(currentDirection === 'asc' ? 'desc' : 'asc'));
+    } else {
+      dispatch(setSortBy(field as any));
+      dispatch(setSortDirection('desc'));
+    }
+  }, [filters.sortBy, filters.sortDirection, dispatch]);
+
+  const handleTokenSelect = useCallback((tokenId: string) => {
+    dispatch(toggleTokenSelection(tokenId));
+  }, [dispatch]);
+
+  const handleFavorite = useCallback((tokenId: string) => {
+    dispatch(toggleFavoriteToken(tokenId));
+  }, [dispatch]);
+
+  const handleBuy = useCallback((token: Token) => {
+    dispatch(openBuy(token));
+  }, [dispatch]);
+
+  const handleDetails = useCallback((tokenId: string) => {
+    dispatch(openTokenDetails(tokenId));
+  }, [dispatch]);
+
+  // Get filter state
+  const searchQuery = useAppSelector(state => state.filters.searchQuery);
+  const quickFilter = useAppSelector(state => state.filters.quickFilter);
+
+  // Memoized filtered and sorted tokens
+  const sortedTokens = useMemo(() => {
+    if (!tokens.length) return [];
+
+    let filteredTokens = [...tokens];
+
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      filteredTokens = filteredTokens.filter(token => 
+        token.name.toLowerCase().includes(query) ||
+        token.symbol.toLowerCase().includes(query) ||
+        token.pairInfo.pairAddress.toLowerCase().includes(query)
+      );
+    }
+
+    // Apply quick filters
+    switch (quickFilter) {
+      case 'trending':
+        filteredTokens = filteredTokens.filter(token => token.volume24h > 50000);
+        break;
+      case 'new':
+        const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+        filteredTokens = filteredTokens.filter(token => 
+          new Date(token.createdAt).getTime() > oneDayAgo
+        );
+        break;
+      case 'gainers':
+        filteredTokens = filteredTokens.filter(token => token.priceChange24h > 0);
+        break;
+      case 'losers':
+        filteredTokens = filteredTokens.filter(token => token.priceChange24h < 0);
+        break;
+      case 'volume':
+        filteredTokens = filteredTokens.filter(token => token.volume24h > 100000);
+        break;
+      case 'all':
+      default:
+        // No additional filtering
+        break;
+    }
+
+    // Apply main filters
+    if (filters.minMarketCap) {
+      filteredTokens = filteredTokens.filter(token => token.marketCap >= filters.minMarketCap!);
+    }
+    if (filters.maxMarketCap) {
+      filteredTokens = filteredTokens.filter(token => token.marketCap <= filters.maxMarketCap!);
+    }
+    if (filters.minLiquidity) {
+      filteredTokens = filteredTokens.filter(token => token.liquidity >= filters.minLiquidity!);
+    }
+    if (filters.maxLiquidity) {
+      filteredTokens = filteredTokens.filter(token => token.liquidity <= filters.maxLiquidity!);
+    }
+    if (filters.minVolume) {
+      filteredTokens = filteredTokens.filter(token => token.volume24h >= filters.minVolume!);
+    }
+    if (filters.maxVolume) {
+      filteredTokens = filteredTokens.filter(token => token.volume24h <= filters.maxVolume!);
+    }
+
+    // Apply sorting
+    return filteredTokens.sort((a, b) => {
+      const direction = filters.sortDirection === 'asc' ? 1 : -1;
+      
+      switch (filters.sortBy) {
+        case 'marketCap':
+          return (a.marketCap - b.marketCap) * direction;
+        case 'liquidity':
+          return (a.liquidity - b.liquidity) * direction;
+        case 'volume':
+          return (a.volume24h - b.volume24h) * direction;
+        case 'priceChange':
+          return (a.priceChange24h - b.priceChange24h) * direction;
+        case 'transactions':
+          return (a.transactions24h - b.transactions24h) * direction;
+        case 'age':
+          return (new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()) * direction;
+        default:
+          return 0;
+      }
+    });
+  }, [tokens, filters, searchQuery, quickFilter]);
+
+  const SortableHeader = ({ field, children }: { field: string; children: React.ReactNode }) => {
+    const isActive = filters.sortBy === field;
+    const direction = filters.sortDirection;
+    
+    return (
+      <button
+        onClick={() => handleSort(field)}
+        className="flex items-center gap-1 text-textSecondary hover:text-textPrimary transition-colors text-[10px] lg:text-[14px] font-medium uppercase tracking-wider"
+      >
+        {children}
+        {isActive && (
+          <i className={`ri-arrow-${direction === 'asc' ? 'up' : 'down'}-s-line text-primaryBlue text-[12px] lg:text-[14px]`} />
+        )}
+      </button>
+    );
+  };
+
+  // Error state
+  if (error) {
+    return (
+      <ErrorBoundary level="component">
+        <div className="w-full">
+          <ErrorAlert 
+            error={loading.error || 'Failed to load tokens'} 
+            className="mb-4"
+          />
+          <TokenTableSkeleton rows={5} />
+        </div>
+      </ErrorBoundary>
+    );
+  }
+
   return (
-    <div className="w-full">
-      {/* Table Header */}
-      <div className="whitespace-nowrap border-primaryStroke/50 border-b-[1px] bg-backgroundSecondary flex flex-row flex-grow w-full max-w-[1420px] min-w-[980px] sm:min-w-[1164px] h-[48px] min-h-[48px] max-h-[48px] px-0 sm:px-[12px] justify-start items-center">
-        <div className="flex flex-row flex-grow w-full h-full items-center">
-          {/* Pair Info Header */}
-          <div className="min-w-0 flex flex-row w-[224px] sm:w-[320px] px-[12px] gap-[12px] justify-start items-center">
-            <span className="text-textSecondary text-[12px] sm:text-[14px] font-medium uppercase tracking-wider">
-              Pair Info
-            </span>
-          </div>
-
-          {/* Market Cap Header */}
-          <div className="min-w-0 flex flex-1 flex-row px-[12px] justify-start items-center">
-            <span className="text-textSecondary text-[12px] sm:text-[14px] font-medium uppercase tracking-wider">
-              Market Cap
-            </span>
-          </div>
-
-          {/* Liquidity Header */}
-          <div className="min-w-0 flex flex-1 flex-row px-[12px] justify-start items-center">
-            <span className="text-textSecondary text-[12px] sm:text-[14px] font-medium uppercase tracking-wider">
-              Liquidity
-            </span>
-          </div>
-
-          {/* Volume Header */}
-          <div className="min-w-0 flex flex-1 flex-row px-[12px] justify-start items-center">
-            <span className="text-textSecondary text-[12px] sm:text-[14px] font-medium uppercase tracking-wider">
-              Volume
-            </span>
-          </div>
-
-          {/* TXNS Header */}
-          <div className="min-w-0 flex flex-1 flex-row px-[12px] justify-start items-center">
-            <span className="text-textSecondary text-[12px] sm:text-[14px] font-medium uppercase tracking-wider">
-              TXNS
-            </span>
-          </div>
-
-          {/* Audit Header */}
-          <div className="min-w-0 flex flex-1 flex-row px-[12px] justify-start items-center">
-            <span className="text-textSecondary text-[12px] sm:text-[14px] font-medium uppercase tracking-wider">
-              Audit
-            </span>
-          </div>
-
-          {/* Action Header */}
-          <div className="min-w-0 flex flex-1 flex-row px-[12px] justify-start items-center">
-            <span className="text-textSecondary text-[12px] sm:text-[14px] font-medium uppercase tracking-wider">
-              Action
-            </span>
+    <ErrorBoundary level="component">
+      <div className="w-full relative">
+        {/* Connection Status */}
+        <div className="flex justify-between items-center mb-2">
+          <DataStatusIndicator 
+            isConnected={isConnected}
+            isSimulating={isSimulating}
+          />
+          <div className="text-xs text-textSecondary">
+            {tokens.length} tokens • Updated live
           </div>
         </div>
-      </div>
 
-      {/* Token Row */}
-      <TokenRow token={mockToken} />
-    </div>
+        {/* Table Header - Desktop Only */}
+        <div className="hidden sm:flex border-primaryStroke/50 border-b-[1px] bg-backgroundSecondary flex-row w-full h-[48px] min-h-[48px] max-h-[48px] px-[12px] justify-start items-center">
+          <div className="flex flex-row flex-grow w-full h-full items-center">
+            {/* Pair Info Header */}
+            <div className="min-w-0 flex flex-row w-[200px] lg:w-[320px] px-[12px] gap-[12px] justify-start items-center">
+              <span className="text-textSecondary text-[11px] lg:text-[14px] font-medium uppercase tracking-wider">
+                Pair Info
+              </span>
+            </div>
+
+            {/* Market Cap Header */}
+            <div className="min-w-0 flex flex-1 flex-row px-[8px] lg:px-[12px] justify-start items-center">
+              <SortableHeader field="marketCap">Market Cap</SortableHeader>
+            </div>
+
+            {/* Liquidity Header */}
+            <div className="min-w-0 flex flex-1 flex-row px-[8px] lg:px-[12px] justify-start items-center">
+              <SortableHeader field="liquidity">Liquidity</SortableHeader>
+            </div>
+
+            {/* Volume Header */}
+            <div className="min-w-0 flex flex-1 flex-row px-[8px] lg:px-[12px] justify-start items-center">
+              <SortableHeader field="volume">Volume</SortableHeader>
+            </div>
+
+            {/* TXNS Header - Hidden on smaller screens */}
+            <div className="min-w-0 hidden lg:flex flex-1 flex-row px-[12px] justify-start items-center">
+              <SortableHeader field="transactions">TXNS</SortableHeader>
+            </div>
+
+            {/* Audit Header - Hidden on smaller screens */}
+            <div className="min-w-0 hidden lg:flex flex-1 flex-row px-[12px] justify-start items-center">
+              <span className="text-textSecondary text-[11px] lg:text-[14px] font-medium uppercase tracking-wider">
+                Audit
+              </span>
+            </div>
+
+            {/* Action Header - Hidden on smaller screens */}
+            <div className="min-w-0 hidden lg:flex flex-1 flex-row px-[12px] justify-start items-center">
+              <span className="text-textSecondary text-[11px] lg:text-[14px] font-medium uppercase tracking-wider">
+                Action
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Table Body */}
+        {loading.isLoading && tokens.length === 0 ? (
+          <TokenTableSkeleton rows={10} />
+        ) : (
+          <div className="w-full">
+            {sortedTokens.map((token) => (
+              <TokenRow
+                key={token.id}
+                token={token}
+                isSelected={selectedTokens.includes(token.id)}
+                priceUpdate={priceUpdates[token.id]}
+                onSelect={handleTokenSelect}
+                onFavorite={handleFavorite}
+                onBuy={handleBuy}
+                onDetails={handleDetails}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Empty State */}
+        {!loading.isLoading && tokens.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <div className="w-16 h-16 mb-4 bg-primaryStroke/20 rounded-full flex items-center justify-center">
+              <i className="ri-search-line text-2xl text-textSecondary" />
+            </div>
+            <h3 className="text-lg font-semibold text-textPrimary mb-2">No tokens found</h3>
+            <p className="text-textSecondary max-w-md">
+              Try adjusting your filters or search criteria to find more tokens.
+            </p>
+          </div>
+        )}
+      </div>
+    </ErrorBoundary>
   );
 }; 

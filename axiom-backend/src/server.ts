@@ -43,7 +43,7 @@ class AxiomServer {
       origin: config.websocket.corsOrigin,
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'x-request-id'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'x-request-id', 'x-timestamp'],
     }));
 
     // Rate limiting

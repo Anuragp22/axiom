@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { FilterPanel } from './FilterPanel';
 import { cn } from '@/lib/utils';
 import Image from 'next/image';
 
@@ -15,6 +16,7 @@ const timeframes = [
 export function Header() {
   const [activeTimeframe, setActiveTimeframe] = useState<'5m' | '1h' | '6h' | '24h'>('24h');
   const [quickBuyAmount, setQuickBuyAmount] = useState('');
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
 
   const handleTimeframeChange = (timeframe: '5m' | '1h' | '6h' | '24h') => {
     setActiveTimeframe(timeframe);
@@ -25,14 +27,14 @@ export function Header() {
   };
 
   return (
-    <div className="flex flex-row w-full h-[32px] min-h-[32px] max-w-[1420px] mb-[16px] gap-[24px] justify-center items-center">
+    <div className="flex flex-col sm:flex-row w-full min-h-[32px] mb-[16px] gap-[12px] sm:gap-[24px] justify-center items-stretch sm:items-center">
       {/* Navigation Section */}
-      <div className="flex flex-row flex-1 gap-[24px] justify-start items-center text-nowrap">
+      <div className="flex flex-row flex-1 gap-[12px] sm:gap-[24px] justify-start items-center text-nowrap overflow-x-auto">
         <Button
           variant="ghost"
           className="flex flex-row h-[32px] gap-[24px] justify-start items-center p-0 hover:bg-transparent"
         >
-          <span className="text-textPrimary text-[16px] sm:text-[20px] font-medium tracking-[-0.02em]">
+          <span className="text-textPrimary text-[14px] sm:text-[20px] font-medium tracking-[-0.02em]">
             DEX Screener
           </span>
         </Button>
@@ -57,8 +59,8 @@ export function Header() {
       </div>
 
       {/* Controls Section */}
-      <div className="relative flex flex-row gap-[24px] min-w-[0px] justify-start items-center text-nowrap">
-        <div className="flex flex-row gap-[24px] min-w-[0px] justify-start items-center text-nowrap overflow-x-auto overflow-y-hidden [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+      <div className="relative flex flex-row gap-[12px] sm:gap-[24px] min-w-[0px] justify-start items-center text-nowrap">
+        <div className="flex flex-row gap-[8px] sm:gap-[24px] min-w-[0px] justify-start items-center text-nowrap overflow-x-auto overflow-y-hidden [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
           
           {/* Timeframe Buttons */}
           <div className="flex flex-row gap-[4px] justify-end items-center">
@@ -80,19 +82,11 @@ export function Header() {
             ))}
           </div>
 
-          {/* Filter Button */}
-          <Button
-            onClick={() => console.log('Filter clicked')}
-            className="bg-primaryStroke flex flex-row h-[32px] px-[12px] gap-[8px] justify-center items-center rounded-full hover:bg-secondaryStroke/80 transition-all duration-150 ease-in-out"
-          >
-            <div className="relative">
-              <i className="ri-equalizer-3-line text-[18px] text-textPrimary" />
-            </div>
-            <div className="whitespace-nowrap flex flex-row gap-[4px] justify-start items-center">
-              <span className="text-[14px] font-bold text-textPrimary">Filter</span>
-            </div>
-            <i className="ri-arrow-down-s-line text-[18px] text-textPrimary" />
-          </Button>
+          {/* Filter Panel */}
+          <FilterPanel 
+            isOpen={isFilterOpen}
+            onOpenChange={setIsFilterOpen}
+          />
 
           {/* Right Controls */}
           <div className="flex flex-row h-full gap-[8px] items-center justify-start">
