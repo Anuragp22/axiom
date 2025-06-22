@@ -19,7 +19,7 @@ export interface Token {
   pair_address?: string;
   created_at?: number;
   updated_at: number;
-  source: 'dexscreener' | 'jupiter' | 'geckoterminal';
+  source: 'dexscreener' | 'jupiter';
 }
 
 export interface DexScreenerToken {
@@ -75,39 +75,6 @@ export interface JupiterPriceResponse {
     };
   };
   timeTaken: number;
-}
-
-export interface GeckoTerminalToken {
-  id: string;
-  type: string;
-  attributes: {
-    address: string;
-    name: string;
-    symbol: string;
-    image_url: string;
-    coingecko_coin_id: string;
-    decimals: number;
-    total_supply: string;
-    price_usd: string;
-    fdv_usd: string;
-    total_reserve_in_usd: string;
-    volume_usd: {
-      h24: string;
-    };
-    market_cap_usd: string;
-  };
-  relationships: {
-    top_pools: {
-      data: Array<{
-        id: string;
-        type: string;
-      }>;
-    };
-  };
-}
-
-export interface GeckoTerminalResponse {
-  data: GeckoTerminalToken[];
 }
 
 export interface TokenFilters {

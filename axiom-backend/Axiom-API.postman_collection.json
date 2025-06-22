@@ -1,0 +1,339 @@
+{
+  "info": {
+    "name": "Axiom Token API",
+    "description": "Real-time meme coin data aggregation API from DexScreener and Jupiter",
+    "version": "1.0.0",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5000",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health Check",
+      "item": [
+        {
+          "name": "Health Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "health"]
+            },
+            "description": "Check API health and service status"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Token Data",
+      "item": [
+        {
+          "name": "Get All Tokens",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tokens",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tokens"]
+            },
+            "description": "Get paginated list of tokens with default settings"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Tokens with Filters",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tokens?min_volume=1000&min_market_cap=100000&timeframe=24h&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tokens"],
+              "query": [
+                {
+                  "key": "min_volume",
+                  "value": "1000",
+                  "description": "Minimum 24h volume in USD"
+                },
+                {
+                  "key": "min_market_cap",
+                  "value": "100000",
+                  "description": "Minimum market cap in USD"
+                },
+                {
+                  "key": "timeframe",
+                  "value": "24h",
+                  "description": "Filter by timeframe: 1h, 24h, 7d"
+                },
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "description": "Number of results per page"
+                }
+              ]
+            },
+            "description": "Get tokens with volume and market cap filters"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Tokens by Protocol",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tokens?protocols=raydium,orca&sort_by=volume&sort_direction=desc",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tokens"],
+              "query": [
+                {
+                  "key": "protocols",
+                  "value": "raydium,orca",
+                  "description": "Filter by specific protocols"
+                },
+                {
+                  "key": "sort_by",
+                  "value": "volume",
+                  "description": "Sort field: volume, market_cap, price_change, liquidity, created_at"
+                },
+                {
+                  "key": "sort_direction",
+                  "value": "desc",
+                  "description": "Sort direction: asc, desc"
+                }
+              ]
+            },
+            "description": "Get tokens filtered by protocols and sorted by volume"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Tokens with Pagination",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tokens?limit=10&cursor=",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tokens"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "10",
+                  "description": "Number of results per page"
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "Pagination cursor from previous response"
+                }
+              ]
+            },
+            "description": "Paginated token results with cursor"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Token Search",
+      "item": [
+        {
+          "name": "Search Tokens",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tokens/search?q=BONK",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tokens", "search"],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "BONK",
+                  "description": "Search query for token name or symbol"
+                }
+              ]
+            },
+            "description": "Search for tokens by name or symbol"
+          },
+          "response": []
+        },
+        {
+          "name": "Search with Sorting",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tokens/search?q=SOL&sort_by=market_cap&sort_direction=desc&limit=5",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tokens", "search"],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "SOL",
+                  "description": "Search query"
+                },
+                {
+                  "key": "sort_by",
+                  "value": "market_cap",
+                  "description": "Sort by market cap"
+                },
+                {
+                  "key": "sort_direction",
+                  "value": "desc",
+                  "description": "Descending order"
+                },
+                {
+                  "key": "limit",
+                  "value": "5",
+                  "description": "Limit results"
+                }
+              ]
+            },
+            "description": "Search tokens with sorting and pagination"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Trending Tokens",
+      "item": [
+        {
+          "name": "Get Trending Tokens",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tokens/trending",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tokens", "trending"]
+            },
+            "description": "Get currently trending tokens"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Trending Tokens (Limited)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tokens/trending?limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tokens", "trending"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "10",
+                  "description": "Number of trending tokens to return"
+                }
+              ]
+            },
+            "description": "Get top 10 trending tokens"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Cache Management",
+      "item": [
+        {
+          "name": "Clear Cache",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tokens/cache/clear",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tokens", "cache", "clear"]
+            },
+            "description": "Clear the token data cache"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Cache Stats",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tokens/cache/stats",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tokens", "cache", "stats"]
+            },
+            "description": "Get cache statistics and performance metrics"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "WebSocket Testing",
+      "item": [
+        {
+          "name": "WebSocket Connection Info",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/",
+              "host": ["{{baseUrl}}"],
+              "path": [""]
+            },
+            "description": "Get WebSocket connection information. Connect to ws://localhost:5000 for live updates"
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Add request ID header for tracking",
+          "pm.request.headers.add({",
+          "    key: 'x-request-id',",
+          "    value: pm.variables.replaceIn('{{$randomUUID}}').replace(/-/g, '')",
+          "});"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Basic response validation",
+          "pm.test('Status code is 200', function () {",
+          "    pm.response.to.have.status(200);",
+          "});",
+          "",
+          "pm.test('Response has success field', function () {",
+          "    var jsonData = pm.response.json();",
+          "    pm.expect(jsonData).to.have.property('success');",
+          "});",
+          "",
+          "pm.test('Response has timestamp', function () {",
+          "    var jsonData = pm.response.json();",
+          "    pm.expect(jsonData).to.have.property('timestamp');",
+          "});"
+        ]
+      }
+    }
+  ]
+} 

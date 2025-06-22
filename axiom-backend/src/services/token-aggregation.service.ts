@@ -1,6 +1,5 @@
 import { DexScreenerService } from './dexscreener.service';
 import { JupiterService } from './jupiter.service';
-import { GeckoTerminalService } from './geckoterminal.service';
 import { Token, TokenFilters, TokenSortOptions, PaginationOptions, TokenListResponse } from '@/types/token';
 import logger from '@/utils/logger';
 import { ValidationError } from '@/utils/errors';
@@ -8,14 +7,12 @@ import { ValidationError } from '@/utils/errors';
 export class TokenAggregationService {
   private dexScreenerService: DexScreenerService;
   private jupiterService: JupiterService;
-  private geckoTerminalService: GeckoTerminalService;
   private cache: Map<string, { data: Token[]; timestamp: number }> = new Map();
   private readonly CACHE_TTL = 30 * 1000; // 30 seconds
 
   constructor() {
     this.dexScreenerService = new DexScreenerService();
     this.jupiterService = new JupiterService();
-    this.geckoTerminalService = new GeckoTerminalService();
   }
 
   async getTokens(
@@ -76,28 +73,14 @@ export class TokenAggregationService {
         throw new ValidationError('Search query must be at least 2 characters long');
       }
 
-      logger.info('Searching tokens across all sources', { query });
+      logger.info('Searching tokens via DexScreener', { query });
 
-      const [dexScreenerTokens, geckoTerminalTokens] = await Promise.allSettled([
-        this.dexScreenerService.searchTokens(query.trim()),
-        this.geckoTerminalService.searchTokens(query.trim()),
-      ]);
+      // Only search via DexScreener now
+      const dexScreenerTokens = await this.dexScreenerService.searchTokens(query.trim());
+      
+      let allTokens: Token[] = [...dexScreenerTokens];
 
-      let allTokens: Token[] = [];
-
-      if (dexScreenerTokens.status === 'fulfilled') {
-        allTokens.push(...dexScreenerTokens.value);
-      } else {
-        logger.warn('DexScreener search failed', { error: dexScreenerTokens.reason });
-      }
-
-      if (geckoTerminalTokens.status === 'fulfilled') {
-        allTokens.push(...geckoTerminalTokens.value);
-      } else {
-        logger.warn('GeckoTerminal search failed', { error: geckoTerminalTokens.reason });
-      }
-
-      allTokens = this.mergeAndDeduplicateTokens(allTokens);
+      // Enrich with Jupiter prices
       allTokens = await this.jupiterService.enrichTokensWithPrices(allTokens);
 
       if (sort) {
@@ -124,24 +107,13 @@ export class TokenAggregationService {
 
   async getTrendingTokens(limit: number = 50): Promise<Token[]> {
     try {
-      logger.info('Fetching trending tokens', { limit });
+      logger.info('Fetching trending tokens from DexScreener', { limit });
 
-      const [dexScreenerTokens, geckoTokens] = await Promise.allSettled([
-        this.dexScreenerService.getTrendingTokens(),
-        this.geckoTerminalService.getTrendingTokens(limit),
-      ]);
+      const dexScreenerTokens = await this.dexScreenerService.getTrendingTokens();
+      
+      let allTokens: Token[] = [...dexScreenerTokens];
 
-      let allTokens: Token[] = [];
-
-      if (dexScreenerTokens.status === 'fulfilled') {
-        allTokens.push(...dexScreenerTokens.value);
-      }
-
-      if (geckoTokens.status === 'fulfilled') {
-        allTokens.push(...geckoTokens.value);
-      }
-
-      allTokens = this.mergeAndDeduplicateTokens(allTokens);
+      // Enrich with Jupiter prices
       allTokens = await this.jupiterService.enrichTokensWithPrices(allTokens);
 
       return allTokens
@@ -174,109 +146,28 @@ export class TokenAggregationService {
   }
 
   private async fetchTokensFromAllSources(): Promise<Token[]> {
-    const [dexScreenerTokens, geckoTokens] = await Promise.allSettled([
-      this.dexScreenerService.getTrendingTokens(),
-      this.geckoTerminalService.getTrendingTokens(100),
-    ]);
-
-    let allTokens: Token[] = [];
-
-    if (dexScreenerTokens.status === 'fulfilled') {
-      allTokens.push(...dexScreenerTokens.value);
-      logger.info('Successfully fetched tokens from DexScreener', { 
-        count: dexScreenerTokens.value.length 
-      });
-    } else {
-      logger.warn('Failed to fetch from DexScreener', { 
-        error: dexScreenerTokens.reason 
-      });
-    }
-
-    if (geckoTokens.status === 'fulfilled') {
-      allTokens.push(...geckoTokens.value);
-      logger.info('Successfully fetched tokens from GeckoTerminal', { 
-        count: geckoTokens.value.length 
-      });
-    } else {
-      logger.warn('Failed to fetch from GeckoTerminal', { 
-        error: geckoTokens.reason 
-      });
-    }
-
-    allTokens = this.mergeAndDeduplicateTokens(allTokens);
-
     try {
-      allTokens = await this.jupiterService.enrichTokensWithPrices(allTokens);
-    } catch (error) {
-      logger.warn('Failed to enrich tokens with Jupiter prices', { error });
-    }
-
-    logger.info('Successfully aggregated tokens from all sources', { 
-      totalTokens: allTokens.length 
-    });
-
-    return allTokens;
-  }
-
-  private mergeAndDeduplicateTokens(tokens: Token[]): Token[] {
-    const tokenMap = new Map<string, Token>();
-    
-    // Count tokens by source for debugging
-    const sourceCount = tokens.reduce((acc, token) => {
-      acc[token.source] = (acc[token.source] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
-    
-    logger.info('Token sources before deduplication', sourceCount);
-
-    tokens.forEach(token => {
-      const existing = tokenMap.get(token.token_address);
+      logger.info('Fetching tokens from DexScreener');
+      const dexScreenerTokens = await this.dexScreenerService.getTrendingTokens();
       
-      if (!existing) {
-        tokenMap.set(token.token_address, token);
-      } else {
-        logger.debug('Merging duplicate token', { 
-          address: token.token_address,
-          existingSource: existing.source,
-          newSource: token.source 
-        });
-        const merged = this.mergeTokenData(existing, token);
-        tokenMap.set(token.token_address, merged);
-      }
-    });
+      let allTokens: Token[] = [...dexScreenerTokens];
 
-    const finalTokens = Array.from(tokenMap.values());
-    const finalSourceCount = finalTokens.reduce((acc, token) => {
-      acc[token.source] = (acc[token.source] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
-    
-    logger.info('Token sources after deduplication', finalSourceCount);
+      logger.info('Successfully fetched tokens from DexScreener', { 
+        count: dexScreenerTokens.length 
+      });
 
-    return finalTokens;
-  }
+      // Enrich with Jupiter prices
+      allTokens = await this.jupiterService.enrichTokensWithPrices(allTokens);
 
-  private mergeTokenData(token1: Token, token2: Token): Token {
-    // Prefer DexScreener as primary source for most data, but keep original source info
-    const preferredSource = token1.source === 'dexscreener' ? token1 : 
-                           token2.source === 'dexscreener' ? token2 : token1;
-    const otherSource = preferredSource === token1 ? token2 : token1;
+      logger.info('Successfully enriched tokens with Jupiter prices', {
+        totalTokens: allTokens.length
+      });
 
-    return {
-      ...preferredSource,
-      // Take the best available data from either source
-      price_usd: otherSource.price_usd ?? preferredSource.price_usd,
-      market_cap_usd: otherSource.market_cap_usd ?? preferredSource.market_cap_usd,
-      volume_usd: otherSource.volume_usd ?? preferredSource.volume_usd,
-      liquidity_usd: otherSource.liquidity_usd ?? preferredSource.liquidity_usd,
-      transaction_count: otherSource.transaction_count || preferredSource.transaction_count,
-      price_1hr_change: otherSource.price_1hr_change || preferredSource.price_1hr_change,
-      price_24hr_change: otherSource.price_24hr_change || preferredSource.price_24hr_change,
-      price_7d_change: otherSource.price_7d_change || preferredSource.price_7d_change,
-      updated_at: Math.max(preferredSource.updated_at, otherSource.updated_at),
-      // Keep the preferred source's identity
-      source: preferredSource.source,
-    };
+      return allTokens;
+    } catch (error) {
+      logger.error('Failed to fetch tokens from DexScreener', { error });
+      throw error;
+    }
   }
 
   private applyFilters(tokens: Token[], filters: TokenFilters): Token[] {

@@ -1,328 +1,359 @@
-# Axiom Backend - Real-time Token Data Aggregation Service
+# Axiom Backend - Real-time Meme Coin Data Aggregation Service
 
-A high-performance Node.js backend service that aggregates real-time meme coin data from multiple DEX sources with efficient caching and real-time WebSocket updates.
+A high-performance Node.js service that aggregates real-time meme coin data from DexScreener and Jupiter APIs with efficient caching and WebSocket-based live updates.
 
-## 🚀 Features
+## 🎯 **Overview**
 
-- **Multi-Source Data Aggregation**: Fetches token data from DexScreener, Jupiter, and GeckoTerminal APIs
-- **Real-time WebSocket Updates**: Live price updates and new token discoveries
-- **Intelligent Token Merging**: Deduplicates and merges token data from multiple sources
-- **Advanced Filtering & Sorting**: Filter by volume, market cap, liquidity, and time periods
-- **Cursor-based Pagination**: Efficient pagination for large token lists
-- **Rate Limiting & Caching**: Built-in rate limiting with exponential backoff and TTL-based caching
-- **Health Monitoring**: Comprehensive health checks for all external services
-- **TypeScript**: Fully typed for better development experience
+This service replicates the data flow pattern seen in axiom.trade's discover page, providing:
+- **Multi-source data aggregation** from DexScreener and Jupiter
+- **Real-time WebSocket updates** for price changes and volume spikes
+- **Intelligent caching** with configurable TTL (30s default)
+- **Advanced filtering & sorting** with cursor-based pagination
+- **Rate limiting with exponential backoff** for external APIs
+- **Comprehensive error handling** and recovery mechanisms
 
-## 🏗️ Architecture
+## 🏗️ **Architecture & Design Decisions**
 
+### **Service Architecture**
 ```
-├── src/
-│   ├── config/           # Configuration management
-│   ├── middleware/       # Express middleware (validation, error handling)
-│   ├── routes/          # API route handlers
-│   ├── services/        # Business logic and external API integrations
-│   ├── types/           # TypeScript type definitions
-│   ├── utils/           # Utility functions (logger, errors, HTTP client)
-│   ├── websocket/       # WebSocket server implementation
-│   └── server.ts        # Main application entry point
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   DexScreener   │    │      Jupiter     │    │   Client Apps   │
+│      API        │    │       API        │    │  (Frontend/WS)  │
+└─────────┬───────┘    └─────────┬────────┘    └─────────┬───────┘
+          │                      │                       │
+          └──────────┬───────────┘                       │
+                     │                                   │
+            ┌────────▼─────────┐                         │
+            │ Token Aggregation │                         │
+            │     Service      │                         │
+            │   (Caching +     │                         │
+            │   Deduplication) │                         │
+            └────────┬─────────┘                         │
+                     │                                   │
+            ┌────────▼─────────┐                         │
+            │  REST API +      │◄────────────────────────┘
+            │  WebSocket       │
+            │   Server         │
+            └──────────────────┘
 ```
 
-## 🛠️ Tech Stack
+### **Key Design Decisions**
 
-- **Runtime**: Node.js 18+
-- **Language**: TypeScript
-- **Web Framework**: Express.js
-- **WebSocket**: Socket.io
-- **HTTP Client**: Axios with retry logic
-- **Validation**: Joi
-- **Logging**: Winston
-- **Task Scheduling**: node-cron
-- **Security**: Helmet, CORS, Rate Limiting
+1. **Two-API Architecture**: Originally planned for 3 APIs, simplified to DexScreener + Jupiter after removing GeckoTerminal due to price change data limitations
+2. **WebSocket for Real-time**: Socket.io for initial data load + live price updates pattern
+3. **Memory Caching**: In-memory cache with TTL for fast response times (30s default)
+4. **Rate Limiting**: Exponential backoff with configurable retries for external API stability
+5. **Cursor Pagination**: Efficient pagination for large datasets using cursor-based approach
+6. **Error Recovery**: Graceful degradation when one API fails, service continues with available data
 
-## 📋 Prerequisites
+## 🚀 **Quick Start**
 
-- Node.js 18 or higher
-- npm or yarn package manager
+### **Prerequisites**
+- Node.js 18+ 
+- npm/yarn package manager
 
-## 🚀 Quick Start
-
-### 1. Install Dependencies
-
+### **Installation & Setup**
 ```bash
+# Clone and navigate
 cd axiom-backend
+
+# Install dependencies
 npm install
-```
 
-### 2. Environment Setup
-
-```bash
+# Environment setup
 cp .env.example .env
 # Edit .env with your configuration
-```
 
-### 3. Start Development Server
-
-```bash
-# Start in development mode with auto-reload
-npm run dev
-
-# Or start in production mode
+# Build and start
 npm run build
 npm start
+
+# Development mode (with auto-reload)
+npm run dev
+
+# Run tests
+npm test
+npm run test:coverage
 ```
 
-The server will start on `http://localhost:5000` (configurable via `PORT` environment variable).
+### **Environment Variables**
+```env
+NODE_ENV=development
+PORT=5000
+LOG_LEVEL=info
 
-## 📚 API Documentation
+# DexScreener API Configuration
+DEXSCREENER_BASE_URL=https://api.dexscreener.com
+DEXSCREENER_TIMEOUT=10000
+DEXSCREENER_RETRIES=3
+DEXSCREENER_RETRY_DELAY=1000
+DEXSCREENER_RATE_LIMIT=300
 
-### Base URL
+# Jupiter API Configuration  
+JUPITER_BASE_URL=https://lite-api.jup.ag
+JUPITER_TIMEOUT=5000
+JUPITER_RETRIES=2
+JUPITER_RETRY_DELAY=500
+JUPITER_RATE_LIMIT=100
+
+# Cache Configuration
+CACHE_TTL_SECONDS=30
+CACHE_MAX_SIZE=1000
+
+# WebSocket Configuration
+WS_CORS_ORIGIN=http://localhost:3000
+WS_PING_INTERVAL=25000
+WS_PING_TIMEOUT=20000
 ```
-http://localhost:5000/api
-```
 
-### Endpoints
+## 📡 **API Documentation**
 
-#### 1. Get Tokens
+### **Base URL**: `http://localhost:5000/api`
+
+### **Core Endpoints**
+
+#### **Health Check**
 ```http
-GET /tokens
+GET /health
+```
+Returns service health status including API connectivity.
+
+#### **Token Listing with Filters**
+```http
+GET /tokens?min_volume=1000&timeframe=24h&sort_by=volume&limit=20
 ```
 
 **Query Parameters:**
-- `timeframe` (optional): `1h`, `24h`, `7d`
-- `min_volume` (optional): Minimum volume filter
-- `min_market_cap` (optional): Minimum market cap filter
-- `min_liquidity` (optional): Minimum liquidity filter
-- `protocols` (optional): Comma-separated protocol names
-- `sort_by` (optional): `volume`, `market_cap`, `price_change`, `liquidity`, `created_at`
-- `sort_direction` (optional): `asc`, `desc`
-- `limit` (optional): Number of results (1-100, default: 20)
-- `cursor` (optional): Pagination cursor
+- `min_volume` (number): Minimum 24h volume in USD
+- `min_market_cap` (number): Minimum market cap in USD  
+- `min_liquidity` (number): Minimum liquidity in USD
+- `timeframe` (string): `1h`, `24h`, `7d` - filter by update recency
+- `protocols` (string): Comma-separated protocol names (`raydium,orca`)
+- `sort_by` (string): `volume`, `market_cap`, `price_change`, `liquidity`, `created_at`
+- `sort_direction` (string): `asc`, `desc`
+- `limit` (number): Results per page (max 100)
+- `cursor` (string): Pagination cursor
 
-**Example Response:**
-```json
-{
-  "success": true,
-  "data": {
-    "tokens": [
-      {
-        "token_address": "576P1t7XsRL4ZVj38LV2eYWxXRPguBADA8BxcNz1xo8y",
-        "token_name": "PIPE CTO",
-        "token_ticker": "PIPE",
-        "price_sol": 4.4141209798877615e-7,
-        "price_usd": 0.00004414,
-        "market_cap_sol": 441.41209798877617,
-        "market_cap_usd": 44141.21,
-        "volume_sol": 1322.4350391679925,
-        "volume_usd": 132243.50,
-        "liquidity_sol": 149.359428555,
-        "liquidity_usd": 14935.94,
-        "transaction_count": 2205,
-        "price_1hr_change": 120.61,
-        "price_24hr_change": 89.32,
-        "protocol": "Raydium CLMM",
-        "updated_at": 1704067200000,
-        "source": "dexscreener"
-      }
-    ],
-    "pagination": {
-      "next_cursor": "eyJvZmZzZXQiOjIwfQ==",
-      "has_more": true,
-      "total": 1250
-    }
-  },
-  "timestamp": 1704067200000
-}
-```
-
-#### 2. Search Tokens
+#### **Token Search**
 ```http
-GET /tokens/search?q=PIPE
+GET /tokens/search?q=BONK&sort_by=market_cap&limit=10
 ```
 
-**Query Parameters:**
-- `q` (required): Search query (minimum 2 characters)
-- Plus all filtering and sorting parameters from `/tokens`
-
-#### 3. Trending Tokens
+#### **Trending Tokens**
 ```http
 GET /tokens/trending?limit=50
 ```
 
-#### 4. Health Check
-```http
-GET /health
-GET /health/detailed
-```
-
-#### 5. Cache Management
+#### **Cache Management**
 ```http
 POST /tokens/cache/clear
 GET /tokens/cache/stats
 ```
 
-## 🔌 WebSocket API
+### **Response Format**
+```json
+{
+  "success": true,
+  "data": {
+    "tokens": [...],
+    "total": 150,
+    "has_next": true,
+    "next_cursor": "cursor_string"
+  },
+  "timestamp": 1640995200000,
+  "request_id": "uuid"
+}
+```
 
-Connect to: `ws://localhost:5000`
+### **Token Data Structure**
+```json
+{
+  "token_address": "576P1t7XsRL4ZVj38LV2eYWxXRPguBADA8BxcNz1xo8y",
+  "token_name": "PIPE CTO", 
+  "token_ticker": "PIPE",
+  "price_sol": 4.4141209798877615e-7,
+  "price_usd": 0.128,
+  "market_cap_sol": 441.41209798877617,
+  "market_cap_usd": 128000,
+  "volume_sol": 1322.4350391679925,
+  "volume_usd": 640000,
+  "liquidity_sol": 149.359428555,
+  "liquidity_usd": 25600,
+  "transaction_count": 2205,
+  "price_1hr_change": 120.61,
+  "price_24hr_change": -18.75,
+  "protocol": "Raydium CLMM",
+  "updated_at": 1640995200000,
+  "source": "dexscreener"
+}
+```
 
-### Events
+## 🔄 **WebSocket API**
 
-#### Client → Server
-- `subscribe_tokens`: Subscribe to token updates
-- `unsubscribe_tokens`: Unsubscribe from updates
-- `get_token`: Request specific token data
-- `ping`: Health check
-
-#### Server → Client
-- `initial_data`: Initial token data on connection
-- `price_update`: Real-time price changes
-- `new_tokens`: New token discoveries
-- `volume_update`: Volume spike alerts
-
-**Example WebSocket Usage:**
+### **Connection**
 ```javascript
 const socket = io('ws://localhost:5000');
+```
 
-// Subscribe to token updates
-socket.emit('subscribe_tokens', ['token_address_1', 'token_address_2']);
+### **Events**
 
-// Listen for price updates
-socket.on('price_update', (data) => {
-  console.log('Price updates:', data.updates);
+#### **Client → Server**
+```javascript
+// Subscribe to token updates  
+socket.emit('subscribe_tokens', ['token1', 'token2']);
+
+// Get specific token data
+socket.emit('get_token', 'token_address', (response) => {
+  console.log(response.data);
 });
 
-// Listen for new tokens
-socket.on('new_tokens', (data) => {
-  console.log('New tokens discovered:', data.tokens);
+// Health check
+socket.emit('ping', (response) => {
+  console.log(response); // 'pong'
 });
 ```
 
-## ⚙️ Configuration
+#### **Server → Client**
+```javascript
+// Initial data on connection
+socket.on('initial_data', (message) => {
+  console.log(message.data.tokens);
+});
 
-### Environment Variables
+// Real-time price updates
+socket.on('price_update', (message) => {
+  console.log(message.data.updates);
+});
+```
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `PORT` | Server port | `5000` |
-| `NODE_ENV` | Environment | `development` |
-| `CACHE_TTL_SECONDS` | Cache TTL | `30` |
-| `CACHE_MAX_SIZE` | Max cache entries | `1000` |
-| `RATE_LIMIT_WINDOW_MS` | Rate limit window | `60000` |
-| `RATE_LIMIT_MAX_REQUESTS` | Max requests per window | `100` |
-| `WS_CORS_ORIGIN` | WebSocket CORS origin | `http://localhost:3000` |
-| `LOG_LEVEL` | Logging level | `info` |
+### **Price Update Message Format**
+```json
+{
+  "type": "price_update",
+  "data": {
+    "updates": [
+      {
+        "token_address": "address",
+        "new_price": 0.128,
+        "change_percent": 5.5
+      }
+    ],
+    "timestamp": 1640995200000
+  },
+  "timestamp": 1640995200000
+}
+```
 
-### API Rate Limits
+## 🧪 **Testing**
 
-The service respects external API rate limits:
-- **DexScreener**: 300 requests/minute
-- **Jupiter**: No strict limit (best effort)
-- **GeckoTerminal**: No strict limit (best effort)
-
-## 🔍 Monitoring & Health
-
-### Health Check Endpoints
-
-1. **Basic Health**: `GET /api/health`
-   - Returns server status and uptime
-
-2. **Detailed Health**: `GET /api/health/detailed`
-   - Checks all external API services
-   - Returns latency and status for each service
-
-### Metrics
-
-- Cache hit/miss rates
-- API call counts by source
-- WebSocket connection metrics
-- Rate limiting statistics
-
-## 🧪 Testing
+### **Test Suite Coverage**
+- **Unit Tests**: Service layer logic, HTTP client, caching
+- **Integration Tests**: API endpoints, WebSocket connections
+- **Edge Cases**: Rate limiting, API failures, invalid data
 
 ```bash
-# Run unit tests
+# Run all tests
 npm test
 
-# Run tests in watch mode
-npm run test:watch
-
-# Run tests with coverage
+# Run with coverage
 npm run test:coverage
+
+# Run specific test file
+npm test -- dexscreener.service.test.ts
+
+# Watch mode for development
+npm run test:watch
 ```
 
-## 📦 Production Deployment
+### **Test Categories**
+- ✅ **HTTP Client**: Exponential backoff, rate limiting, error handling
+- ✅ **DexScreener Service**: Token search, trending data, API integration  
+- ✅ **Token Aggregation**: Filtering, sorting, pagination, caching
+- ✅ **WebSocket Server**: Connection handling, price updates, error recovery
 
-### Build
+## 🔧 **Performance & Optimization**
 
+### **Caching Strategy**
+- **In-memory cache** with configurable TTL (default 30s)
+- **Intelligent cache warming** for trending tokens
+- **Cache hit ratio monitoring** via `/tokens/cache/stats`
+
+### **Rate Limiting**
+- **DexScreener**: 300 requests/minute with exponential backoff
+- **Jupiter**: 100 requests/minute with retry logic
+- **Automatic request batching** for bulk operations
+
+### **WebSocket Optimizations**
+- **5-second price update intervals** for real-time feel
+- **30-second cache refresh cycles** for data freshness
+- **Connection pooling** and room-based subscriptions
+
+## 📦 **Deployment**
+
+### **Production Build**
 ```bash
 npm run build
-```
-
-### Start Production Server
-
-```bash
 npm start
 ```
 
-### Environment Recommendations
-
-- Set `NODE_ENV=production`
-- Configure appropriate log levels
-- Set up process monitoring (PM2, systemd)
-- Configure reverse proxy (nginx)
-- Set up SSL/TLS termination
-
-## 🔧 Development
-
-### Scripts
-
-```bash
-npm run dev          # Start development server with auto-reload
-npm run build        # Build TypeScript to JavaScript
-npm start            # Start production server
-npm run lint         # Run ESLint
-npm run lint:fix     # Fix ESLint issues
-npm test             # Run tests
+### **Docker Support** (Optional)
+```dockerfile
+FROM node:18-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --only=production
+COPY dist ./dist
+EXPOSE 5000
+CMD ["npm", "start"]
 ```
 
-### Code Style
+### **Environment Variables for Production**
+```env
+NODE_ENV=production
+PORT=5000
+LOG_LEVEL=warn
+# ... other production configs
+```
 
-- TypeScript with strict mode
-- ESLint for code quality
-- Prettier for formatting (if configured)
+## 🔍 **Monitoring & Observability**
 
-## 🤝 Contributing
+### **Health Monitoring**
+- `/api/health` - Service health check
+- Service uptime and API connectivity status
+- Cache performance metrics
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Run linting and tests
-6. Submit a pull request
+### **Logging**
+- Structured JSON logging via Winston
+- Request/response logging with correlation IDs
+- Error tracking with stack traces
 
-## 📄 License
+### **Metrics Available**
+- WebSocket connection count
+- Cache hit/miss ratios  
+- API response times
+- Error rates by service
 
-MIT License - see LICENSE file for details
+## 📋 **API Testing with Postman**
 
-## 🆘 Support
+Import the provided `Axiom-API.postman_collection.json` file into Postman for comprehensive API testing. The collection includes:
 
-For issues and questions:
-- Check the health endpoints for service status
-- Review logs for error details
-- Ensure all environment variables are properly configured
-- Verify external API connectivity
+- **Health checks** and service status
+- **Token filtering** with various parameters
+- **Search functionality** with sorting
+- **Pagination examples** with cursors
+- **Cache management** operations
+- **Pre-request scripts** for request ID generation
+- **Automated test scripts** for response validation
 
-## 🔄 Data Flow
+## 🚧 **Development Roadmap**
 
-1. **Data Aggregation**: Fetches from multiple DEX APIs in parallel
-2. **Data Merging**: Intelligently combines data from different sources
-3. **Price Enrichment**: Enhances data with Jupiter price information
-4. **Caching**: Stores processed data with TTL-based expiration
-5. **WebSocket Broadcasting**: Pushes real-time updates to connected clients
-6. **API Serving**: Provides REST endpoints with filtering and pagination
+### **Completed Features** ✅
+- Multi-API data aggregation (DexScreener + Jupiter)
+- WebSocket real-time updates  
+- Advanced filtering and sorting
+- Cursor-based pagination
+- Rate limiting and error handling
+- Comprehensive test suite
+- Postman collection
 
-## 📊 Performance
 
-- **Response Time**: < 500ms for cached data
-- **Throughput**: 100+ requests/second
-- **Memory Usage**: < 512MB typical
-- **Cache Hit Rate**: ~80% typical 

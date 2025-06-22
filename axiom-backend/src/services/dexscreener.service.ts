@@ -154,7 +154,7 @@ export class DexScreenerService {
         price_usd: parseFloat(pair.priceUsd) || 0,
         market_cap_sol: pair.marketCap ? pair.marketCap / parseFloat(pair.priceUsd || '1') : 0,
         market_cap_usd: pair.marketCap,
-        volume_sol: pair.liquidity?.base || 0,
+        volume_sol: volume24h / (parseFloat(pair.priceUsd) || 1), // Convert USD volume to SOL
         volume_usd: volume24h,
         liquidity_sol: pair.liquidity?.base || 0,
         liquidity_usd: pair.liquidity?.usd || 0,

@@ -1,141 +1,131 @@
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router } from 'express';
 import { DexScreenerService } from '@/services/dexscreener.service';
 import { JupiterService } from '@/services/jupiter.service';
-import { GeckoTerminalService } from '@/services/geckoterminal.service';
-import { HealthCheckResponse, ApiResponse } from '@/types/api';
 import logger from '@/utils/logger';
 
 const router = Router();
 
-/**
- * GET /api/health
- * Basic health check endpoint
- */
-router.get('/', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const response: ApiResponse<{ status: string; uptime: number }> = {
-      success: true,
-      data: {
-        status: 'healthy',
-        uptime: process.uptime(),
-      },
-      timestamp: Date.now(),
-      request_id: req.headers['x-request-id'] as string,
-    };
+interface HealthResponse {
+  status: 'healthy' | 'degraded' | 'unhealthy';
+  timestamp: string;
+  services: {
+    dexscreener: { status: 'up' | 'down'; error?: string };
+    jupiter: { status: 'up' | 'down'; error?: string };
+  };
+  cache: {
+    status: 'up' | 'down';
+  };
+}
 
-    res.json(response);
-  } catch (error) {
-    next(error);
-  }
-});
+router.get('/', async (req, res) => {
+  const startTime = Date.now();
+  logger.info('Health check started');
 
-/**
- * GET /api/health/detailed
- * Detailed health check including external services
- */
-router.get('/detailed', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const startTime = Date.now();
-    
     // Initialize services
     const dexScreenerService = new DexScreenerService();
     const jupiterService = new JupiterService();
-    const geckoTerminalService = new GeckoTerminalService();
 
-    // Check all services in parallel
-    const [dexScreenerHealth, jupiterHealth, geckoTerminalHealth] = await Promise.allSettled([
-      checkServiceHealth('DexScreener', () => dexScreenerService.searchTokens('SOL')),
+    // Check service health in parallel
+    const [dexScreenerHealth, jupiterHealth] = await Promise.allSettled([
+      checkServiceHealth('DexScreener', async () => {
+        // Simple health check - try to search for a common token
+        const tokens = await dexScreenerService.searchTokens('SOL');
+        return tokens.length > 0;
+      }),
       checkServiceHealth('Jupiter', () => jupiterService.healthCheck()),
-      checkServiceHealth('GeckoTerminal', () => geckoTerminalService.healthCheck()),
     ]);
 
-    // Determine overall status
-    const services: HealthCheckResponse['services'] = {};
-    let overallStatus: HealthCheckResponse['status'] = 'healthy';
+    // Build response
+    const services: HealthResponse['services'] = {
+      dexscreener: { status: 'down' },
+      jupiter: { status: 'down' },
+    };
+
+    let healthyCount = 0;
+    const totalServices = 2;
 
     // Process DexScreener
     if (dexScreenerHealth.status === 'fulfilled') {
       services.dexscreener = dexScreenerHealth.value;
+      if (dexScreenerHealth.value.status === 'up') healthyCount++;
     } else {
       services.dexscreener = { status: 'down', error: 'Health check failed' };
-      overallStatus = 'degraded';
     }
 
     // Process Jupiter
     if (jupiterHealth.status === 'fulfilled') {
       services.jupiter = jupiterHealth.value;
+      if (jupiterHealth.value.status === 'up') healthyCount++;
     } else {
       services.jupiter = { status: 'down', error: 'Health check failed' };
-      overallStatus = 'degraded';
     }
 
-    // Process GeckoTerminal
-    if (geckoTerminalHealth.status === 'fulfilled') {
-      services.geckoterminal = geckoTerminalHealth.value;
-    } else {
-      services.geckoterminal = { status: 'down', error: 'Health check failed' };
-      overallStatus = 'degraded';
-    }
+    // Determine overall status
+    const overallStatus: HealthResponse['status'] = 
+      healthyCount === totalServices ? 'healthy' :
+      healthyCount > 0 ? 'degraded' : 'unhealthy';
 
-    // If all services are down, mark as unhealthy
-    const allServicesDown = Object.values(services).every(service => service.status === 'down');
-    if (allServicesDown) {
-      overallStatus = 'unhealthy';
-    }
-
-    const healthResponse: HealthCheckResponse = {
+    const response: HealthResponse = {
       status: overallStatus,
-      timestamp: Date.now(),
-      uptime: process.uptime(),
+      timestamp: new Date().toISOString(),
       services,
+      cache: {
+        status: 'up', // Simple cache status - could be enhanced
+      },
     };
 
-    const response: ApiResponse<HealthCheckResponse> = {
-      success: true,
-      data: healthResponse,
-      timestamp: Date.now(),
-      request_id: req.headers['x-request-id'] as string,
-    };
+    const duration = Date.now() - startTime;
+    logger.info('Health check completed', { 
+      status: overallStatus, 
+      duration,
+      healthyServices: healthyCount,
+      totalServices
+    });
 
-    // Set appropriate HTTP status code
-    const statusCode = overallStatus === 'healthy' ? 200 : 
+    // Return appropriate HTTP status
+    const httpStatus = overallStatus === 'healthy' ? 200 : 
                       overallStatus === 'degraded' ? 200 : 503;
 
-    res.status(statusCode).json(response);
+    res.status(httpStatus).json(response);
   } catch (error) {
-    logger.error('Health check failed', { error });
-    next(error);
+    const duration = Date.now() - startTime;
+    logger.error('Health check failed', { error, duration });
+
+    const response: HealthResponse = {
+      status: 'unhealthy',
+      timestamp: new Date().toISOString(),
+      services: {
+        dexscreener: { status: 'down', error: 'Health check error' },
+        jupiter: { status: 'down', error: 'Health check error' },
+      },
+      cache: {
+        status: 'down',
+      },
+    };
+
+    res.status(503).json(response);
   }
 });
 
-/**
- * Helper function to check individual service health
- */
 async function checkServiceHealth(
-  serviceName: string, 
-  healthCheckFn: () => Promise<any>
-): Promise<{ status: 'up' | 'down'; latency?: number; error?: string }> {
-  const startTime = Date.now();
-  
+  serviceName: string,
+  healthCheckFn: () => Promise<boolean>
+): Promise<{ status: 'up' | 'down'; error?: string }> {
   try {
-    await healthCheckFn();
-    const latency = Date.now() - startTime;
+    const isHealthy = await healthCheckFn();
+    const status = isHealthy ? 'up' : 'down';
     
-    logger.debug(`${serviceName} health check passed`, { latency });
+    logger.debug(`${serviceName} health check completed`, { status });
     
-    return { status: 'up', latency };
-  } catch (error: any) {
-    const latency = Date.now() - startTime;
-    
-    logger.warn(`${serviceName} health check failed`, { 
-      error: error.message, 
-      latency 
-    });
+    return { status };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    logger.warn(`${serviceName} health check failed`, { error: errorMessage });
     
     return { 
       status: 'down', 
-      latency,
-      error: error.message 
+      error: errorMessage 
     };
   }
 }
