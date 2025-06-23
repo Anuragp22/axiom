@@ -1,14 +1,14 @@
 'use client';
 
 import Image from 'next/image';
-import React, { useMemo, useCallback } from 'react';
+import React, { useMemo, useCallback, useEffect } from 'react';
 import { SimpleTokenAvatar } from '@/components/ui/token-avatar';
 import { TokenDetailsPopover } from '@/components/ui/token-details-popover';
 import { useTokensWithState } from '@/lib/hooks/useTokens';
 import { useRealTimeUpdates } from '@/lib/hooks/useWebSocket';
 import { useAppDispatch, useAppSelector } from '@/lib/store';
 import { setSortBy, setSortDirection } from '@/lib/store/slices/filtersSlice';
-import { setPagination, toggleFavoriteToken, toggleTokenSelection } from '@/lib/store/slices/tokensSlice';
+import { clearPriceAnimations, setPagination, toggleFavoriteToken, toggleTokenSelection } from '@/lib/store/slices/tokensSlice';
 import { openBuy, openTokenDetails } from '@/lib/store/slices/modalsSlice';
 import { TokenTableSkeleton, PulseAnimation, DataStatusIndicator } from '@/components/ui/loading-states';
 import { ErrorBoundary, ErrorAlert } from '@/components/ui/error-boundary';
@@ -53,6 +53,18 @@ const TokenRow = ({
       return `${(num / 1000).toFixed(1)}K`;
     }
     return num.toString();
+  };
+
+  const formatPrice = (price: number) => {
+    if (price >= 1) {
+      return price.toFixed(4);
+    } else if (price >= 0.01) {
+      return price.toFixed(6);
+    } else if (price >= 0.000001) {
+      return price.toFixed(8);
+    } else {
+      return price.toFixed(12);
+    }
   };
 
   const getChangeColor = (change: number) => {
@@ -109,8 +121,16 @@ const TokenRow = ({
               isAnimating={priceUpdate?.animate}
               variant={priceUpdate?.change && priceUpdate.change > 0 ? "green" : "red"}
             >
-              <span className={`text-sm font-medium ${getChangeColor(token.priceChange24h)}`}>
-                {token.priceChange24h >= 0 ? '+' : ''}{token.priceChange24h.toFixed(2)}%
+              <span className="text-textPrimary text-sm font-medium">
+                ${formatPrice(priceUpdate?.price || token.priceData.current)}
+              </span>
+            </PulseAnimation>
+            <PulseAnimation 
+              isAnimating={priceUpdate?.animate}
+              variant={priceUpdate?.change && priceUpdate.change > 0 ? "green" : "red"}
+            >
+              <span className={`text-xs font-medium ${getChangeColor(priceUpdate?.change || token.priceChange24h)}`}>
+                {(priceUpdate?.change || token.priceChange24h) >= 0 ? '+' : ''}{(priceUpdate?.change || token.priceChange24h).toFixed(2)}%
               </span>
             </PulseAnimation>
           </div>
@@ -222,21 +242,11 @@ const TokenRow = ({
           <div className="flex flex-col gap-[4px] justify-start items-start">
             <div className="flex flex-row gap-[4px] justify-start items-center">
               <PulseAnimation 
-                isAnimating={priceUpdate?.animate && priceUpdate.change > 0}
-                variant={priceUpdate?.change && priceUpdate.change > 0 ? "green" : "red"}
+                isAnimating={priceUpdate?.animate}
+                variant="green"
               >
                 <span className="text-textPrimary text-[11px] lg:text-[14px] font-medium">
                   {formatNumber(token.marketCap)}
-                </span>
-              </PulseAnimation>
-            </div>
-            <div className="flex flex-row gap-[4px] justify-start items-center">
-              <PulseAnimation 
-                isAnimating={priceUpdate?.animate}
-                variant={priceUpdate?.change && priceUpdate.change > 0 ? "green" : "red"}
-              >
-                <span className={`font-GeistMono text-[10px] lg:text-[12px] font-medium ${getChangeColor(token.priceChange24h)}`}>
-                  {token.priceChange24h >= 0 ? '+' : ''}{token.priceChange24h.toFixed(2)}%
                 </span>
               </PulseAnimation>
             </div>
@@ -247,9 +257,14 @@ const TokenRow = ({
         <div className="min-w-0 flex flex-1 flex-row px-[8px] lg:px-[12px] justify-start items-center">
           <div className="flex flex-col gap-[4px] justify-start items-start">
             <div className="flex flex-row gap-[4px] justify-start items-center">
-              <span className="text-textPrimary text-[11px] lg:text-[14px] font-medium">
-                {formatNumber(token.liquidity)}
-              </span>
+              <PulseAnimation 
+                isAnimating={priceUpdate?.animate}
+                variant="green"
+              >
+                <span className="text-textPrimary text-[11px] lg:text-[14px] font-medium">
+                  {formatNumber(token.liquidity)}
+                </span>
+              </PulseAnimation>
             </div>
           </div>
         </div>
@@ -258,9 +273,14 @@ const TokenRow = ({
         <div className="min-w-0 flex flex-1 flex-row px-[8px] lg:px-[12px] justify-start items-center">
           <div className="flex flex-col gap-[4px] justify-start items-start">
             <div className="flex flex-row gap-[4px] justify-start items-center">
-              <span className="text-textPrimary text-[11px] lg:text-[14px] font-medium">
-                {formatNumber(token.volume24h)}
-              </span>
+              <PulseAnimation 
+                isAnimating={priceUpdate?.animate}
+                variant="green"
+              >
+                <span className="text-textPrimary text-[11px] lg:text-[14px] font-medium">
+                  {formatNumber(token.volume24h)}
+                </span>
+              </PulseAnimation>
             </div>
           </div>
         </div>
@@ -367,7 +387,20 @@ export const TokenTable = () => {
   } = useTokensWithState();
   
   const filters = useAppSelector(state => state.filters.filters);
-  const { isConnected, isSimulating } = useRealTimeUpdates();
+  const { isConnected } = useRealTimeUpdates();
+
+  // Clear animation flags after a delay
+  useEffect(() => {
+    const animatingTokens = Object.entries(priceUpdates).filter(([_, update]) => update.animate);
+    
+    if (animatingTokens.length > 0) {
+      const timeout = setTimeout(() => {
+        dispatch(clearPriceAnimations());
+      }, 1000);
+      
+      return () => clearTimeout(timeout);
+    }
+  }, [priceUpdates, dispatch]);
 
   // Memoized handlers
   const handleSort = useCallback((field: string) => {
@@ -437,6 +470,9 @@ export const TokenTable = () => {
         break;
       case 'volume':
         filteredTokens = filteredTokens.filter(token => token.volume24h > 100000);
+        break;
+      case 'pump':
+        filteredTokens = filteredTokens.filter(token => token.isPumpFun);
         break;
       case 'all':
       default:

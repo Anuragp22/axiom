@@ -23,7 +23,7 @@ interface BackendToken {
   pair_address?: string;
   created_at?: number;
   updated_at: number;
-  source: 'dexscreener' | 'jupiter';
+  source: 'dexscreener' | 'jupiter' | 'geckoterminal';
 }
 
 interface BackendTokenListResponse {
@@ -35,12 +35,6 @@ interface BackendTokenListResponse {
   };
 }
 
-interface BackendApiResponse {
-  success: boolean;
-  data: BackendTokenListResponse;
-  timestamp: number;
-  request_id: string;
-}
 
 /**
  * Transform backend token to frontend token format
@@ -328,6 +322,17 @@ export class TokenApiService {
     });
     
     const response = await apiClient.get<{ tokens: BackendToken[] }>(`/tokens/trending?${params}`);
+    
+    return {
+      tokens: response.tokens.map(transformToken),
+    };
+  }
+
+  /**
+   * Get featured tokens (specific popular tokens from DexScreener)
+   */
+  async getFeaturedTokens(): Promise<{ tokens: Token[] }> {
+    const response = await apiClient.get<{ tokens: BackendToken[] }>('/tokens/featured');
     
     return {
       tokens: response.tokens.map(transformToken),

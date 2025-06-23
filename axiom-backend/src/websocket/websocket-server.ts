@@ -164,33 +164,84 @@ export class WebSocketServer {
         return; // No clients connected, skip update
       }
 
-      // Get fresh token data
-      const currentTokens = await this.tokenService.getTrendingTokens(50);
+      // Get current token data or use cached data for simulation
+      let currentTokens = this.lastTokenData;
       
-      // Compare with last known data to find changes
-      const priceUpdates = this.detectPriceChanges(this.lastTokenData, currentTokens);
-      
-      if (priceUpdates.length > 0) {
-        const message: WebSocketMessage = {
-          type: 'price_update',
-          data: {
-            updates: priceUpdates,
-            timestamp: Date.now(),
-          },
-          timestamp: Date.now(),
-        };
+      // If we have existing data, simulate price movements for demo
+      if (currentTokens.length > 0) {
+        // Create simulated price updates for a subset of tokens
+        const tokensToUpdate = currentTokens
+          .sort(() => Math.random() - 0.5)
+          .slice(0, Math.floor(currentTokens.length * 0.2)) // Update 20% of tokens
+          .slice(0, 8); // Max 8 tokens per update
 
-        // Broadcast to all clients subscribed to token updates
-        this.io.to('token_updates').emit('price_update', message);
+        const simulatedUpdates = tokensToUpdate
+          .filter(token => token.price_usd != null)
+          .map(token => {
+            // Generate price movement (-10% to +10%)
+            const priceChangePercent = (Math.random() - 0.5) * 20;
+            const newPrice = token.price_usd! * (1 + priceChangePercent / 100);
+            
+            // Generate volume changes (-30% to +50%)
+            const volumeChangePercent = (Math.random() - 0.3) * 80;
+            const newVolume = (token.volume_usd || 0) * (1 + volumeChangePercent / 100);
+            
+            // Generate liquidity changes (-10% to +15%)
+            const liquidityChangePercent = (Math.random() - 0.4) * 25;
+            const newLiquidity = (token.liquidity_usd || 0) * (1 + liquidityChangePercent / 100);
+            
+            return {
+              token_address: token.token_address,
+              old_price: token.price_usd!,
+              new_price: newPrice,
+              price_change_percent: priceChangePercent,
+              old_volume: token.volume_usd || 0,
+              new_volume: Math.max(0, newVolume),
+              volume_change_percent: volumeChangePercent,
+              old_liquidity: token.liquidity_usd || 0,
+              new_liquidity: Math.max(0, newLiquidity),
+              liquidity_change_percent: liquidityChangePercent,
+            };
+          });
+
+        if (simulatedUpdates.length > 0) {
+          const message: WebSocketMessage = {
+            type: 'price_update',
+            data: {
+              updates: simulatedUpdates,
+              timestamp: Date.now(),
+            },
+            timestamp: Date.now(),
+          };
+
+          // Broadcast to all clients subscribed to token updates
+          this.io.to('token_updates').emit('price_update', message);
+          
+          logger.debug('Broadcasted simulated price updates', { 
+            updateCount: simulatedUpdates.length,
+            clientCount: this.connectedClients.size 
+          });
+
+          // Update our cached data with new prices, volume, and liquidity
+          simulatedUpdates.forEach(update => {
+            const tokenIndex = this.lastTokenData.findIndex(t => t.token_address === update.token_address);
+            if (tokenIndex !== -1 && this.lastTokenData[tokenIndex]) {
+              this.lastTokenData[tokenIndex].price_usd = update.new_price;
+              this.lastTokenData[tokenIndex].volume_usd = update.new_volume;
+              this.lastTokenData[tokenIndex].liquidity_usd = update.new_liquidity;
+              this.lastTokenData[tokenIndex].updated_at = Date.now();
+            }
+          });
+        }
+      } else {
+        // First time - get fresh data from API
+        const freshTokens = await this.tokenService.getTrendingTokens(50);
+        this.lastTokenData = freshTokens;
         
-        logger.debug('Broadcasted price updates', { 
-          updateCount: priceUpdates.length,
-          clientCount: this.connectedClients.size 
+        logger.debug('Loaded initial token data for WebSocket', { 
+          tokenCount: freshTokens.length 
         });
       }
-
-      // Update last known data
-      this.lastTokenData = currentTokens;
     } catch (error) {
       logger.error('Failed to broadcast price updates', { error });
     }

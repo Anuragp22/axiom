@@ -23,7 +23,7 @@ export class DexScreenerService {
       logger.info('Searching tokens on DexScreener', { query });
       
       const response = await this.httpClient.get<DexScreenerResponse>(
-        `/latest/dex/search?q=${encodeURIComponent(query)}`
+        `/latest/dex/search/?q=${encodeURIComponent(query)}`
       );
 
       return this.transformTokens(response.pairs);
@@ -41,7 +41,7 @@ export class DexScreenerService {
       logger.info('Fetching token pairs from DexScreener', { tokenAddress });
       
       const response = await this.httpClient.get<DexScreenerToken[]>(
-        `/latest/dex/tokens/solana/${tokenAddress}`
+        `/latest/dex/tokens/${tokenAddress}`
       );
 
       return this.transformTokens(response);
@@ -86,33 +86,69 @@ export class DexScreenerService {
   }
 
   /**
-   * Get trending tokens (latest boosted tokens)
+   * Get trending tokens using search for popular tokens
    */
   async getTrendingTokens(): Promise<Token[]> {
     try {
-      logger.info('Fetching trending tokens from DexScreener');
+      logger.info('Fetching trending tokens from DexScreener using search');
       
-      // Use search with popular Solana tokens to get trending data
-      const trendingQueries = ['SOL', 'USDC', 'meme', 'pump'];
+      // Reduced to only 8 tokens to avoid rate limiting (300 requests/minute = 5 requests/second max)
+      const popularTokens = [
+        'LAUNCHCOIN', 'Fartcoin', 'USELESS', 'aura', 
+        'GOR', 'BONK', 'WIF', 'POPCAT'
+      ];
       const allTokens: Token[] = [];
 
-      for (const query of trendingQueries) {
+      for (const tokenName of popularTokens) {
         try {
-          const tokens = await this.searchTokens(query);
-          allTokens.push(...tokens);
+          await this.delay(2000); // 2 second delay to stay well under rate limit
+          const searchResults = await this.searchTokens(tokenName);
+          if (searchResults.length > 0 && searchResults[0]) {
+            allTokens.push(searchResults[0]);
+          }
         } catch (error) {
-          logger.warn('Failed to fetch trending tokens for query', { query, error });
+          logger.warn(`Failed to search for ${tokenName}`, { error });
         }
       }
 
-      // Remove duplicates and sort by volume
-      const uniqueTokens = this.removeDuplicates(allTokens);
-      return uniqueTokens
-        .sort((a, b) => b.volume_sol - a.volume_sol)
-        .slice(0, 50); // Return top 50
+      logger.info('Successfully fetched trending tokens', { count: allTokens.length });
+
+      return allTokens
+        .sort((a, b) => (b.volume_usd || 0) - (a.volume_usd || 0))
+        .slice(0, 50); // Increased to show more tokens
     } catch (error) {
-      logger.error('Failed to fetch trending tokens from DexScreener', { error });
+      logger.error('Failed to fetch trending tokens', { error });
       throw new ExternalApiError('DexScreener', `Trending tokens fetch failed: ${error}`);
+    }
+  }
+
+  /**
+   * Get featured tokens using search
+   */
+  async getFeaturedTokens(): Promise<Token[]> {
+    try {
+      logger.info('Fetching featured tokens from DexScreener');
+      
+      // Search for just 2-3 specific tokens
+      const featuredTokenNames = ['BONK', 'WIF'];
+      const allTokens: Token[] = [];
+
+      for (const tokenName of featuredTokenNames) {
+        try {
+          await this.delay(1000); // 1 second delay for rate limiting
+          const searchResults = await this.searchTokens(tokenName);
+          if (searchResults.length > 0 && searchResults[0]) {
+            allTokens.push(searchResults[0]);
+          }
+        } catch (error) {
+          logger.warn(`Failed to search for featured token ${tokenName}`, { error });
+        }
+      }
+
+      return allTokens.sort((a, b) => (b.volume_usd || 0) - (a.volume_usd || 0));
+    } catch (error) {
+      logger.error('Failed to fetch featured tokens from DexScreener', { error });
+      throw new ExternalApiError('DexScreener', `Featured tokens fetch failed: ${error}`);
     }
   }
 
@@ -194,5 +230,9 @@ export class DexScreenerService {
       seen.add(token.token_address);
       return true;
     });
+  }
+
+  private async delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 } 

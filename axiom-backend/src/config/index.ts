@@ -11,10 +11,10 @@ const config = {
   apis: {
     dexScreener: {
       baseUrl: process.env.DEXSCREENER_BASE_URL || 'https://api.dexscreener.com',
-      timeout: 10000,
-      retries: 3,
-      retryDelay: 1000,
-      rateLimit: parseInt(process.env.DEXSCREENER_RATE_LIMIT || '300', 10),
+      timeout: 15000,
+      retries: 2, // Fewer retries to avoid hitting rate limits
+      retryDelay: 5000, // Longer delay between retries
+      rateLimit: parseInt(process.env.DEXSCREENER_RATE_LIMIT || '60', 10), // Much lower rate limit
     },
     jupiter: {
       baseUrl: process.env.JUPITER_BASE_URL || 'https://lite-api.jup.ag',
@@ -22,6 +22,14 @@ const config = {
       retries: 3,
       retryDelay: 1000,
       rateLimit: parseInt(process.env.JUPITER_RATE_LIMIT || '600', 10),
+    },
+    geckoTerminal: {
+      baseUrl: process.env.GECKO_TERMINAL_BASE_URL || 'https://api.geckoterminal.com/api/v2',
+      timeout: 10000,
+      retries: 2,
+      retryDelay: 2000, // 2 second delay between retries
+      rateLimit: parseInt(process.env.GECKO_TERMINAL_RATE_LIMIT || '30', 10), // 30 calls per minute as per docs
+      version: '20230302', // API version as specified in docs
     },
   },
 

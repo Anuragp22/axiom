@@ -41,6 +41,7 @@ export const FilterPanel: React.FC<FilterPanelProps> = ({ isOpen, onOpenChange }
     { id: 'gainers', label: 'Top Gainers' },
     { id: 'losers', label: 'Top Losers' },
     { id: 'volume', label: 'High Volume' },
+    { id: 'pump', label: 'Pump.fun' },
   ];
 
   const sortOptions = [

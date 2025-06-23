@@ -16,6 +16,7 @@ interface TokensState {
   }>;
   searchQuery: string;
   isRealTimeEnabled: boolean;
+  lastUpdateTimestamps: Record<string, number>;
 }
 
 const initialState: TokensState = {
@@ -38,7 +39,11 @@ const initialState: TokensState = {
   priceUpdates: {},
   searchQuery: '',
   isRealTimeEnabled: true,
+  lastUpdateTimestamps: {},
 };
+
+// Throttle constant - minimum time between updates for same token (in ms)
+const UPDATE_THROTTLE_MS = 500;
 
 const tokensSlice = createSlice({
   name: 'tokens',
@@ -67,31 +72,44 @@ const tokensSlice = createSlice({
       price: number;
       change: number;
       volume?: number;
+      liquidity?: number;
     }>) => {
-      const { tokenId, price, change, volume } = action.payload;
+      const { tokenId, price, change, volume, liquidity } = action.payload;
+      const now = Date.now();
+      const lastUpdate = state.lastUpdateTimestamps[tokenId] || 0;
+      
+      // Throttle updates - only allow updates every UPDATE_THROTTLE_MS
+      if (now - lastUpdate < UPDATE_THROTTLE_MS) {
+        return; // Skip this update
+      }
+      
       const tokenIndex = state.tokens.findIndex(t => t.id === tokenId);
       
       if (tokenIndex !== -1) {
-        state.tokens[tokenIndex].priceData.current = price;
-        state.tokens[tokenIndex].priceData.change24h = change;
-        if (volume !== undefined) {
-          state.tokens[tokenIndex].volume24h = volume;
+        const currentPrice = state.tokens[tokenIndex].priceData.current;
+        // Only update if price actually changed significantly (avoid micro-changes)
+        const priceChangeThreshold = Math.abs((price - currentPrice) / currentPrice) > 0.001; // 0.1% threshold
+        
+        if (priceChangeThreshold) {
+          state.tokens[tokenIndex].priceData.current = price;
+          state.tokens[tokenIndex].priceData.change24h = change;
+          if (volume !== undefined) {
+            state.tokens[tokenIndex].volume24h = volume;
+          }
+          if (liquidity !== undefined) {
+            state.tokens[tokenIndex].liquidity = liquidity;
+          }
+          
+          state.priceUpdates[tokenId] = {
+            price,
+            change,
+            timestamp: now,
+            animate: true,
+          };
+          
+          state.lastUpdateTimestamps[tokenId] = now;
         }
       }
-      
-      state.priceUpdates[tokenId] = {
-        price,
-        change,
-        timestamp: Date.now(),
-        animate: true,
-      };
-      
-      // Clear animation flag after setting it
-      setTimeout(() => {
-        if (state.priceUpdates[tokenId]) {
-          state.priceUpdates[tokenId].animate = false;
-        }
-      }, 1000);
     },
     
     toggleTokenSelection: (state, action: PayloadAction<string>) => {
@@ -147,6 +165,7 @@ const tokensSlice = createSlice({
       state.tokens = state.tokens.filter(t => t.id !== tokenId);
       state.selectedTokens = state.selectedTokens.filter(id => id !== tokenId);
       delete state.priceUpdates[tokenId];
+      delete state.lastUpdateTimestamps[tokenId];
     },
   },
 });

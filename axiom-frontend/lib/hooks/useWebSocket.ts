@@ -114,8 +114,9 @@ export function useWebSocket(options: UseWebSocketOptions = {}): WebSocketHookRe
         reconnectCountRef.current = 0;
         setReconnectCount(0);
         
-        // Subscribe to token updates
-        socket.emit('subscribe', { channel: 'tokens' });
+        // Subscribe to token updates room
+        socket.emit('subscribe_tokens', []);
+        console.log('📡 Subscribed to token updates');
       });
 
       socket.on('disconnect', (reason) => {
@@ -144,8 +145,22 @@ export function useWebSocket(options: UseWebSocketOptions = {}): WebSocketHookRe
         }
       });
 
-      // Token data event handlers
-      socket.on('price_update', handleMessage);
+      // Token data event handlers - Backend format
+      socket.on('price_update', (backendMessage) => {
+        console.log('📈 Received price updates:', backendMessage);
+        if (backendMessage.data?.updates && Array.isArray(backendMessage.data.updates)) {
+          backendMessage.data.updates.forEach((update: any) => {
+            dispatch(updateTokenPrice({
+              tokenId: update.token_address,
+              price: update.new_price,
+              change: update.price_change_percent,
+              volume: update.new_volume,
+              liquidity: update.new_liquidity,
+            }));
+          });
+        }
+      });
+      
       socket.on('token_update', handleMessage);
       socket.on('new_token', handleMessage);
       
@@ -235,55 +250,8 @@ export function useWebSocket(options: UseWebSocketOptions = {}): WebSocketHookRe
 }
 
 /**
- * Hook for price simulation (fallback when WebSocket is not available)
- */
-export function usePriceSimulation(enabled = false) {
-  const dispatch = useAppDispatch();
-  const tokens = useAppSelector(state => state.tokens.tokens);
-  const isRealTimeEnabled = useAppSelector(state => state.tokens.isRealTimeEnabled);
-  
-  useEffect(() => {
-    if (!enabled || !isRealTimeEnabled || tokens.length === 0) return;
-    
-    const interval = setInterval(() => {
-      // Simulate price updates for a random subset of tokens
-      const tokensToUpdate = tokens
-        .sort(() => Math.random() - 0.5)
-        .slice(0, Math.floor(tokens.length * 0.1)) // Update 10% of tokens
-        .slice(0, 5); // Max 5 tokens per update
-      
-      tokensToUpdate.forEach(token => {
-        // Generate realistic price movement (-5% to +5%)
-        const changePercent = (Math.random() - 0.5) * 10;
-        const newPrice = token.priceData.current * (1 + changePercent / 100);
-        const newVolume = token.volume24h * (0.8 + Math.random() * 0.4); // ±20% volume change
-        
-        dispatch(updateTokenPrice({
-          tokenId: token.id,
-          price: newPrice,
-          change: changePercent,
-          volume: newVolume,
-        }));
-      });
-    }, 2000 + Math.random() * 3000); // Random interval between 2-5 seconds
-    
-    return () => clearInterval(interval);
-  }, [enabled, isRealTimeEnabled, tokens, dispatch]);
-}
-
-/**
- * Combined hook that uses WebSocket with fallback to simulation
+ * Main hook for real-time WebSocket updates
  */
 export function useRealTimeUpdates(options: UseWebSocketOptions = {}) {
-  const wsResult = useWebSocket(options);
-  const isRealTimeEnabled = useAppSelector(state => state.tokens.isRealTimeEnabled);
-  
-  // Use price simulation as fallback when WebSocket is not connected
-  usePriceSimulation(!wsResult.isConnected && isRealTimeEnabled);
-  
-  return {
-    ...wsResult,
-    // Indicate if we're using simulation as fallback
-    isSimulating: !wsResult.isConnected && isRealTimeEnabled,
-  };
+  return useWebSocket(options);
 } 

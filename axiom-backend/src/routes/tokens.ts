@@ -131,6 +131,30 @@ router.get(
 );
 
 /**
+ * GET /api/tokens/featured
+ * Get featured tokens (specific popular tokens from DexScreener)
+ */
+router.get(
+  '/featured',
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const tokens = await tokenService.getFeaturedTokens();
+
+      const response: ApiResponse = {
+        success: true,
+        data: { tokens },
+        timestamp: Date.now(),
+        request_id: req.headers['x-request-id'] as string,
+      };
+
+      res.json(response);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
  * POST /api/tokens/cache/clear
  * Clear token cache (admin endpoint)
  */

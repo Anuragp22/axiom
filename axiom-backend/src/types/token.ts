@@ -19,7 +19,7 @@ export interface Token {
   pair_address?: string;
   created_at?: number;
   updated_at: number;
-  source: 'dexscreener' | 'jupiter';
+  source: 'dexscreener' | 'jupiter' | 'geckoterminal';
 }
 
 export interface DexScreenerToken {
@@ -108,4 +108,113 @@ export interface WebSocketMessage {
   type: 'price_update' | 'volume_update' | 'new_token' | 'error';
   data: any;
   timestamp: number;
+}
+
+export interface GeckoTerminalToken {
+  id: string;
+  type: string;
+  attributes: {
+    address: string;
+    name: string;
+    symbol: string;
+    decimals: number;
+    total_supply: string;
+    price_usd: string;
+    fdv_usd: string;
+    total_reserve_in_usd: string;
+    volume_usd: {
+      h1: string;
+      h24: string;
+    };
+    market_cap_usd: string;
+    price_change_percentage: {
+      h1: string;
+      h24: string;
+    };
+  };
+  relationships: {
+    top_pools: {
+      data: Array<{
+        id: string;
+        type: string;
+      }>;
+    };
+  };
+}
+
+export interface GeckoTerminalPool {
+  id: string;
+  type: string;
+  attributes: {
+    name: string;
+    address: string;
+    base_token_price_usd: string;
+    quote_token_price_usd: string;
+    base_token_price_native_currency: string;
+    quote_token_price_native_currency: string;
+    pool_created_at: string;
+    reserve_in_usd: string;
+    fdv_usd: string;
+    market_cap_usd: string;
+    price_change_percentage: {
+      h1: string;
+      h24: string;
+    };
+    transactions: {
+      h1: {
+        buys: number;
+        sells: number;
+      };
+      h24: {
+        buys: number;
+        sells: number;
+      };
+    };
+    volume_usd: {
+      h1: string;
+      h24: string;
+    };
+  };
+  relationships: {
+    base_token: {
+      data: {
+        id: string;
+        type: string;
+      };
+    };
+    quote_token: {
+      data: {
+        id: string;
+        type: string;
+      };
+    };
+    dex: {
+      data: {
+        id: string;
+        type: string;
+      };
+    };
+  };
+}
+
+export interface GeckoTerminalNetworkResponse {
+  data: Array<{
+    id: string;
+    type: string;
+    attributes: {
+      name: string;
+      identifier: string;
+      chain_identifier: string;
+    };
+  }>;
+}
+
+export interface GeckoTerminalTokenResponse {
+  data: GeckoTerminalToken[];
+  included?: Array<GeckoTerminalToken | GeckoTerminalPool>;
+}
+
+export interface GeckoTerminalPoolResponse {
+  data: GeckoTerminalPool[];
+  included?: Array<GeckoTerminalToken | GeckoTerminalPool>;
 } 

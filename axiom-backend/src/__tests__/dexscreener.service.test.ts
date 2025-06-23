@@ -1,7 +1,5 @@
 import { DexScreenerService } from '../services/dexscreener.service';
 import { HttpClient } from '../utils/http-client';
-import { Token } from '../types/token';
-import { describe, beforeEach, it } from 'node:test';
 
 // Mock the HttpClient
 jest.mock('../utils/http-client');
@@ -31,7 +29,7 @@ describe('DexScreenerService', () => {
           {
             chainId: 'solana',
             dexId: 'raydium',
-            pairAddress: 'test-pair-address',
+            pairAddress: 'test-pair',
             baseToken: {
               address: 'test-token-address',
               name: 'Test Token',
@@ -45,21 +43,21 @@ describe('DexScreenerService', () => {
             priceNative: '0.001',
             priceUsd: '0.128',
             txns: {
-              h24: { buys: 100, sells: 50 }
+              h24: { buys: 50, sells: 25 }
             },
             volume: {
-              h24: 1000
+              h24: 500
             },
             priceChange: {
-              h1: 5.5,
-              h24: -2.3
+              h1: 2.5,
+              h24: -1.2
             },
             liquidity: {
-              usd: 50000,
-              base: 1000,
-              quote: 500
+              usd: 25000,
+              base: 500,
+              quote: 250
             },
-            marketCap: 128000,
+            marketCap: 64000,
             pairCreatedAt: 1640995200000
           }
         ]
@@ -74,8 +72,8 @@ describe('DexScreenerService', () => {
         token_address: 'test-token-address',
         token_name: 'Test Token',
         token_ticker: 'TEST',
-        price_1hr_change: 5.5,
-        price_24hr_change: -2.3,
+        price_1hr_change: 2.5,
+        price_24hr_change: -1.2,
         source: 'dexscreener'
       });
     });
@@ -227,14 +225,63 @@ describe('DexScreenerService', () => {
     it('should handle partial failures in trending queries', async () => {
       mockHttpClient.get
         .mockResolvedValueOnce({ pairs: [] }) // SOL query succeeds but empty
-        .mockRejectedValueOnce(new Error('API Error')) // USDC query fails
+        .mockRejectedValueOnce(new Error('API Error')) // pump query fails
         .mockResolvedValueOnce({ pairs: [] }) // meme query succeeds but empty
-        .mockResolvedValueOnce({ pairs: [] }); // pump query succeeds but empty
+        .mockResolvedValueOnce({ pairs: [] }); // trending query succeeds but empty
 
       const result = await service.getTrendingTokens();
 
       expect(result).toHaveLength(0);
       expect(mockHttpClient.get).toHaveBeenCalledTimes(4);
+    });
+
+    it('should handle complete API failure', async () => {
+      mockHttpClient.get.mockRejectedValue(new Error('Complete API failure'));
+
+      const result = await service.getTrendingTokens();
+      
+      // Should return empty array when all searches fail
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('getFeaturedTokens', () => {
+    it('should fetch featured tokens', async () => {
+      const mockSearchResponse = {
+        pairs: [
+          {
+            chainId: 'solana',
+            dexId: 'raydium',
+            pairAddress: 'featured-pair',
+            baseToken: { address: 'featured-token', name: 'Featured Token', symbol: 'FEAT' },
+            quoteToken: { address: 'So11111111111111111111111111111111111111112', name: 'Solana', symbol: 'SOL' },
+            priceNative: '0.005',
+            priceUsd: '0.64',
+            txns: { h24: { buys: 500, sells: 250 } },
+            volume: { h24: 5000 },
+            priceChange: { h1: 5, h24: 15 },
+            liquidity: { usd: 50000, base: 500, quote: 250 },
+            marketCap: 64000,
+            pairCreatedAt: 1640995200000
+          }
+        ]
+      };
+
+      mockHttpClient.get.mockResolvedValue(mockSearchResponse);
+
+      const result = await service.getFeaturedTokens();
+
+      expect(result.length).toBeGreaterThanOrEqual(0);
+      expect(mockHttpClient.get).toHaveBeenCalled();
+    });
+
+    it('should handle API errors in featured tokens', async () => {
+      mockHttpClient.get.mockRejectedValue(new Error('Featured API Error'));
+
+      const result = await service.getFeaturedTokens();
+      
+      // Should return empty array when all searches fail
+      expect(result).toEqual([]);
     });
   });
 }); 

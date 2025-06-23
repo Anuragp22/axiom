@@ -1,10 +1,13 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 import { TableFilters, SortOption } from '@/lib/types';
 
+export type QuickFilterOption = 'all' | 'trending' | 'new' | 'gainers' | 'losers' | 'volume' | 'pump';
+export type ActiveTab = 'dex-screener' | 'trending' | 'pump-live';
+
 interface FiltersState {
   filters: TableFilters;
   searchQuery: string;
-  quickFilter: 'all' | 'trending' | 'new' | 'gainers' | 'losers' | 'volume';
+  quickFilter: QuickFilterOption;
   quickFilters: {
     showOnlyFavorites: boolean;
     showOnlyVerified: boolean;
@@ -21,6 +24,7 @@ interface FiltersState {
     filters: boolean;
     settings: boolean;
   };
+  activeTab: ActiveTab;
 }
 
 const initialState: FiltersState = {
@@ -33,9 +37,9 @@ const initialState: FiltersState = {
     maxVolume: undefined,
     onlyVerified: false,
     onlyGraduated: false,
-    excludeRugs: true,
+    excludeRugs: false,
     timeframe: '24h',
-    sortBy: 'marketCap',
+    sortBy: 'volume',
     sortDirection: 'desc',
   },
   searchQuery: '',
@@ -56,6 +60,7 @@ const initialState: FiltersState = {
     filters: false,
     settings: false,
   },
+  activeTab: 'dex-screener',
 };
 
 const filtersSlice = createSlice({
@@ -108,13 +113,30 @@ const filtersSlice = createSlice({
       // Note: We don't reset pagination here as it's handled client-side
     },
     
-    setQuickFilter: (state, action: PayloadAction<'all' | 'trending' | 'new' | 'gainers' | 'losers' | 'volume'>) => {
+    setQuickFilter: (state, action: PayloadAction<QuickFilterOption>) => {
       state.quickFilter = action.payload;
       // Note: We don't reset pagination here as it's handled client-side
     },
     
-    setPriceRange: (state, action: PayloadAction<{ min: number | null; max: number | null }>) => {
-      state.priceRange = action.payload;
+    setActiveTab: (state, action: PayloadAction<ActiveTab>) => {
+      state.activeTab = action.payload;
+      // Reset quick filter when switching tabs
+      if (action.payload === 'trending') {
+        state.quickFilter = 'trending';
+      } else if (action.payload === 'pump-live') {
+        state.quickFilter = 'pump';
+      } else {
+        state.quickFilter = 'all';
+      }
+    },
+    
+    setPriceRange: (state, action: PayloadAction<{ min?: number; max?: number }>) => {
+      if (action.payload.min !== undefined) {
+        state.filters.minMarketCap = action.payload.min;
+      }
+      if (action.payload.max !== undefined) {
+        state.filters.maxMarketCap = action.payload.max;
+      }
     },
     
     toggleQuickFilter: (state, action: PayloadAction<keyof FiltersState['quickFilters']>) => {
@@ -202,6 +224,7 @@ export const {
   setMaxVolume,
   setSearchQuery,
   setQuickFilter,
+  setActiveTab,
   setPriceRange,
   toggleQuickFilter,
   resetFilters,

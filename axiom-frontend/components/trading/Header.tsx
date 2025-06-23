@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { FilterPanel } from './FilterPanel';
 import { cn } from '@/lib/utils';
 import { useAppSelector, useAppDispatch } from '@/lib/store';
-import { setTimeframe } from '@/lib/store/slices/filtersSlice';
+import { setTimeframe, setActiveTab } from '@/lib/store/slices/filtersSlice';
 import { useQueryClient } from '@tanstack/react-query';
 import { tokenQueryKeys } from '@/lib/hooks/useTokens';
 import Image from 'next/image';
@@ -21,6 +21,7 @@ export function Header() {
   const dispatch = useAppDispatch();
   const queryClient = useQueryClient();
   const activeTimeframe = useAppSelector(state => state.filters.timeframe);
+  const activeTab = useAppSelector(state => state.filters.activeTab);
   const [quickBuyAmount, setQuickBuyAmount] = useState('');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
 
@@ -28,6 +29,13 @@ export function Header() {
     dispatch(setTimeframe(timeframe));
     
     // Force React Query to refetch all token queries
+    queryClient.invalidateQueries({ queryKey: tokenQueryKeys.all });
+  };
+
+  const handleTabChange = (tab: 'dex-screener' | 'trending' | 'pump-live') => {
+    dispatch(setActiveTab(tab));
+    
+    // Force React Query to refetch data for the new tab
     queryClient.invalidateQueries({ queryKey: tokenQueryKeys.all });
   };
 
@@ -41,27 +49,39 @@ export function Header() {
       <div className="flex flex-row flex-1 gap-[12px] sm:gap-[24px] justify-start items-center text-nowrap overflow-x-auto">
         <Button
           variant="ghost"
+          onClick={() => handleTabChange('dex-screener')}
           className="flex flex-row h-[32px] gap-[24px] justify-start items-center p-0 hover:bg-transparent"
         >
-          <span className="text-textPrimary text-[14px] sm:text-[20px] font-medium tracking-[-0.02em]">
+          <span className={cn(
+            "text-[14px] sm:text-[20px] font-medium tracking-[-0.02em] transition-colors duration-150",
+            activeTab === 'dex-screener' ? "text-textPrimary" : "text-textTertiary hover:text-textPrimary"
+          )}>
             DEX Screener
           </span>
         </Button>
         
         <Button
           variant="ghost"
+          onClick={() => handleTabChange('trending')}
           className="flex flex-row h-[32px] gap-[24px] justify-start items-center p-0 hover:bg-transparent"
         >
-          <span className="text-textTertiary text-[16px] sm:text-[20px] font-medium tracking-[-0.02em] hover:text-textPrimary transition-colors duration-150">
+          <span className={cn(
+            "text-[16px] sm:text-[20px] font-medium tracking-[-0.02em] transition-colors duration-150",
+            activeTab === 'trending' ? "text-textPrimary" : "text-textTertiary hover:text-textPrimary"
+          )}>
             Trending
           </span>
         </Button>
         
         <Button
           variant="ghost"
+          onClick={() => handleTabChange('pump-live')}
           className="flex flex-row h-[32px] gap-[24px] justify-start items-center p-0 hover:bg-transparent"
         >
-          <span className="text-textTertiary text-[16px] sm:text-[20px] font-medium tracking-[-0.02em] hover:text-textPrimary transition-colors duration-150">
+          <span className={cn(
+            "text-[16px] sm:text-[20px] font-medium tracking-[-0.02em] transition-colors duration-150",
+            activeTab === 'pump-live' ? "text-textPrimary" : "text-textTertiary hover:text-textPrimary"
+          )}>
             Pump Live
           </span>
         </Button>

@@ -1,5 +1,5 @@
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useEffect } from 'react';
 import { tokenApi } from '@/lib/api/tokens';
 import { Token, TableFilters, TokenListResponse } from '@/lib/types';
 import { useAppSelector, useAppDispatch } from '@/lib/store';
@@ -162,6 +162,24 @@ export function useTrendingTokens(
 }
 
 /**
+ * Hook to fetch featured tokens (specific popular tokens from DexScreener)
+ */
+export function useFeaturedTokens(
+  options: { enabled?: boolean } = {}
+) {
+  const { enabled = true } = options;
+
+  return useQuery({
+    queryKey: ['tokens', 'featured'],
+    queryFn: () => tokenApi.getFeaturedTokens(),
+    staleTime: 10 * 60 * 1000, // 10 minutes
+    gcTime: 30 * 60 * 1000, // 30 minutes
+    enabled,
+    refetchOnWindowFocus: false,
+  });
+}
+
+/**
  * Hook to fetch token details
  */
 export function useTokenDetails(
@@ -280,11 +298,13 @@ export function usePrefetchTokenDetails() {
  * Custom hook that combines Redux state with React Query data
  */
 export function useTokensWithState() {
+  const dispatch = useAppDispatch();
   const reduxState = useAppSelector(state => state.tokens);
   const filters = useAppSelector(state => state.filters.filters);
   const searchQuery = useAppSelector(state => state.filters.searchQuery);
   const quickFilter = useAppSelector(state => state.filters.quickFilter);
   const timeframe = useAppSelector(state => state.filters.timeframe);
+  const activeTab = useAppSelector(state => state.filters.activeTab);
   
   // Combine all filters for the API call
   const combinedFilters = useMemo(() => ({
@@ -294,12 +314,89 @@ export function useTokensWithState() {
     quickFilter: quickFilter !== 'all' ? quickFilter : undefined,
   }), [filters, searchQuery, quickFilter, timeframe]);
   
-  const queryResult = useTokens(
+  // Choose data source based on active tab
+  const trendingQuery = useTrendingTokens(100, { enabled: activeTab === 'trending' });
+  const featuredQuery = useFeaturedTokens({ enabled: activeTab === 'pump-live' });
+  const regularQuery = useTokens(
     combinedFilters,
     reduxState.pagination.page,
     reduxState.pagination.pageSize,
-    reduxState.pagination.cursor
+    reduxState.pagination.cursor,
+    { enabled: activeTab === 'dex-screener' }
   );
+
+  // Update Redux store when data changes
+  useEffect(() => {
+    let tokensToStore: Token[] = [];
+    let isLoading = false;
+    let error: string | null = null;
+
+    switch (activeTab) {
+      case 'trending':
+        if (trendingQuery.data?.tokens) {
+          tokensToStore = trendingQuery.data.tokens;
+        }
+        isLoading = trendingQuery.isLoading;
+        error = trendingQuery.error?.message || null;
+        break;
+      case 'pump-live':
+        if (featuredQuery.data?.tokens) {
+          tokensToStore = featuredQuery.data.tokens.filter(token => token.isPumpFun);
+        }
+        isLoading = featuredQuery.isLoading;
+        error = featuredQuery.error?.message || null;
+        break;
+      default:
+        if (regularQuery.data?.tokens) {
+          tokensToStore = regularQuery.data.tokens;
+        }
+        isLoading = regularQuery.isLoading;
+        error = regularQuery.error?.message || null;
+        break;
+    }
+
+    // Update Redux store
+    dispatch(setLoading({ isLoading, error }));
+    if (tokensToStore.length > 0) {
+      dispatch(setTokens(tokensToStore));
+    }
+  }, [activeTab, trendingQuery.data, featuredQuery.data, regularQuery.data, trendingQuery.isLoading, featuredQuery.isLoading, regularQuery.isLoading, trendingQuery.error, featuredQuery.error, regularQuery.error, dispatch]);
+
+  // Select the appropriate query result based on active tab
+  const queryResult = useMemo(() => {
+    switch (activeTab) {
+      case 'trending':
+        return {
+          ...trendingQuery,
+          data: trendingQuery.data ? {
+            tokens: trendingQuery.data.tokens,
+            pagination: {
+              page: 1,
+              pageSize: trendingQuery.data.tokens.length,
+              total: trendingQuery.data.tokens.length,
+              totalPages: 1,
+              hasMore: false,
+            }
+          } : undefined
+        };
+      case 'pump-live':
+        return {
+          ...featuredQuery,
+          data: featuredQuery.data ? {
+            tokens: featuredQuery.data.tokens.filter(token => token.isPumpFun),
+            pagination: {
+              page: 1,
+              pageSize: featuredQuery.data.tokens.length,
+              total: featuredQuery.data.tokens.length,
+              totalPages: 1,
+              hasMore: false,
+            }
+          } : undefined
+        };
+      default:
+        return regularQuery;
+    }
+  }, [activeTab, trendingQuery, featuredQuery, regularQuery]);
 
   return {
     ...queryResult,
@@ -314,5 +411,7 @@ export function useTokensWithState() {
     priceUpdates: reduxState.priceUpdates,
     // Add error from React Query if Redux doesn't have it
     error: reduxState.loading.error || queryResult.error?.message || null,
+    // Add tab information
+    activeTab,
   };
 } 

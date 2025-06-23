@@ -167,7 +167,7 @@ export const Spinner = memo(({
 });
 Spinner.displayName = "Spinner";
 
-// Pulse animation for price updates
+// Static wrapper for price updates (no animation)
 export const PulseAnimation = memo(({ 
   children,
   isAnimating = false,
@@ -177,20 +177,8 @@ export const PulseAnimation = memo(({
   isAnimating?: boolean;
   variant?: "green" | "red";
 }) => {
-  const pulseClass = variant === "green" 
-    ? "animate-pulse bg-primaryGreen/20" 
-    : "animate-pulse bg-decrease/20";
-
-  return (
-    <div 
-      className={cn(
-        "transition-all duration-200",
-        isAnimating && pulseClass
-      )}
-    >
-      {children}
-    </div>
-  );
+  // Simply return children without any animation
+  return <>{children}</>;
 });
 PulseAnimation.displayName = "PulseAnimation";
 

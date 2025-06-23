@@ -120,6 +120,10 @@ export type SortOption =
   | 'age'
   | 'transactions';
 
+export type QuickFilterOption = 'all' | 'trending' | 'new' | 'gainers' | 'losers' | 'volume' | 'pump';
+
+export type ActiveTab = 'dex-screener' | 'trending' | 'pump-live';
+
 export interface PaginationState {
   page: number;
   pageSize: number;

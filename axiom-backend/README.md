@@ -1,11 +1,11 @@
 # Axiom Backend - Real-time Meme Coin Data Aggregation Service
 
-A high-performance Node.js service that aggregates real-time meme coin data from DexScreener and Jupiter APIs with efficient caching and WebSocket-based live updates.
+A high-performance Node.js service that aggregates real-time meme coin data from DexScreener, Jupiter, and GeckoTerminal APIs with efficient caching and WebSocket-based live updates.
 
 ## 🎯 **Overview**
 
 This service replicates the data flow pattern seen in axiom.trade's discover page, providing:
-- **Multi-source data aggregation** from DexScreener and Jupiter
+- **Multi-source data aggregation** from DexScreener, Jupiter, and GeckoTerminal
 - **Real-time WebSocket updates** for price changes and volume spikes
 - **Intelligent caching** with configurable TTL (30s default)
 - **Advanced filtering & sorting** with cursor-based pagination
@@ -16,22 +16,22 @@ This service replicates the data flow pattern seen in axiom.trade's discover pag
 
 ### **Service Architecture**
 ```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   DexScreener   │    │      Jupiter     │    │   Client Apps   │
-│      API        │    │       API        │    │  (Frontend/WS)  │
-└─────────┬───────┘    └─────────┬────────┘    └─────────┬───────┘
-          │                      │                       │
-          └──────────┬───────────┘                       │
-                     │                                   │
-            ┌────────▼─────────┐                         │
-            │ Token Aggregation │                         │
-            │     Service      │                         │
-            │   (Caching +     │                         │
-            │   Deduplication) │                         │
-            └────────┬─────────┘                         │
-                     │                                   │
-            ┌────────▼─────────┐                         │
-            │  REST API +      │◄────────────────────────┘
+┌─────────────────┐  ┌──────────────────┐  ┌─────────────────┐  ┌─────────────────┐
+│   DexScreener   │  │      Jupiter     │  │  GeckoTerminal  │  │   Client Apps   │
+│      API        │  │       API        │  │      API        │  │  (Frontend/WS)  │
+└─────────┬───────┘  └─────────┬────────┘  └─────────┬───────┘  └─────────┬───────┘
+          │                    │                     │                   │
+          └──────────┬─────────┴─────────────────────┘                   │
+                     │                                                   │
+            ┌────────▼─────────┐                                         │
+            │ Token Aggregation │                                         │
+            │     Service      │                                         │
+            │   (Caching +     │                                         │
+            │   Deduplication) │                                         │
+            └────────┬─────────┘                                         │
+                     │                                                   │
+            ┌────────▼─────────┐                                         │
+            │  REST API +      │◄────────────────────────────────────────┘
             │  WebSocket       │
             │   Server         │
             └──────────────────┘
@@ -39,12 +39,33 @@ This service replicates the data flow pattern seen in axiom.trade's discover pag
 
 ### **Key Design Decisions**
 
-1. **Two-API Architecture**: Originally planned for 3 APIs, simplified to DexScreener + Jupiter after removing GeckoTerminal due to price change data limitations
+1. **Three-API Architecture**: Uses DexScreener as primary data source + Jupiter for price enrichment + GeckoTerminal for famous tokens
 2. **WebSocket for Real-time**: Socket.io for initial data load + live price updates pattern
 3. **Redis Caching**: Production-ready Redis caching with ioredis client, falls back gracefully if Redis unavailable
 4. **Rate Limiting**: Exponential backoff with configurable retries for external API stability
 5. **Cursor Pagination**: Efficient pagination for large datasets using cursor-based approach
 6. **Error Recovery**: Graceful degradation when one API fails, service continues with available data
+
+## 🔌 **Data Sources**
+
+### **DexScreener API**
+- **Purpose**: Primary source for trending meme tokens and real-time trading data
+- **Rate Limit**: 300 requests/minute
+- **Features**: Token search, trending tokens, volume data, price changes
+- **Data**: Solana-based tokens with comprehensive trading metrics
+
+### **Jupiter API**  
+- **Purpose**: Price enrichment and validation for token data
+- **Rate Limit**: 600 requests/minute
+- **Features**: Real-time price feeds, token metadata
+- **Use Case**: Cross-validation and price accuracy improvement
+
+### **GeckoTerminal API**
+- **Purpose**: Famous tokens data and established cryptocurrency information
+- **Rate Limit**: 30 requests/minute (free tier)
+- **Features**: Top cryptocurrencies, market data, established tokens
+- **Data**: Major cryptocurrencies like SOL, USDC, USDT, BONK, WIF, mSOL
+- **API Version**: v20230302
 
 ## 🚀 **Quick Start**
 
@@ -95,6 +116,13 @@ JUPITER_TIMEOUT=5000
 JUPITER_RETRIES=2
 JUPITER_RETRY_DELAY=500
 JUPITER_RATE_LIMIT=100
+
+# GeckoTerminal API Configuration
+GECKO_TERMINAL_BASE_URL=https://api.geckoterminal.com/api/v2
+GECKO_TERMINAL_TIMEOUT=10000
+GECKO_TERMINAL_RETRIES=2
+GECKO_TERMINAL_RETRY_DELAY=2000
+GECKO_TERMINAL_RATE_LIMIT=30
 
 # Cache Configuration
 CACHE_TTL_SECONDS=30

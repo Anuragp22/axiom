@@ -1,21 +1,58 @@
 import { DexScreenerService } from './dexscreener.service';
 import { JupiterService } from './jupiter.service';
+import { GeckoTerminalService } from './geckoterminal.service';
 import { RedisCacheService } from './redis-cache.service';
 import { Token, TokenFilters, TokenSortOptions, PaginationOptions, TokenListResponse } from '@/types/token';
+import config from '@/config';
 import logger from '@/utils/logger';
 import { ValidationError } from '@/utils/errors';
-import config from '@/config';
 
 export class TokenAggregationService {
   private dexScreenerService: DexScreenerService;
   private jupiterService: JupiterService;
+  private geckoTerminalService: GeckoTerminalService;
   private redisCache: RedisCacheService;
   private readonly CACHE_TTL = config.cache.ttl; // Use config value
+  private readonly GECKO_CACHE_TTL = 600; // 10 minutes for GeckoTerminal to reduce API calls
+  private geckoTerminalCache: Token[] | null = null;
+  private geckoTerminalCacheTime: number = 0;
 
   constructor() {
     this.dexScreenerService = new DexScreenerService();
     this.jupiterService = new JupiterService();
+    this.geckoTerminalService = new GeckoTerminalService();
     this.redisCache = new RedisCacheService();
+  }
+
+  /**
+   * Get GeckoTerminal tokens with aggressive caching to avoid rate limits
+   */
+  private async getCachedGeckoTerminalTokens(): Promise<Token[]> {
+    const now = Date.now();
+    
+    // Check if we have cached data that's still valid
+    if (this.geckoTerminalCache && 
+        this.geckoTerminalCacheTime && 
+        (now - this.geckoTerminalCacheTime) < (this.GECKO_CACHE_TTL * 1000)) {
+      logger.debug('Using in-memory cached GeckoTerminal tokens');
+      return this.geckoTerminalCache;
+    }
+
+    try {
+      logger.info('Fetching fresh GeckoTerminal tokens');
+      const tokens = await this.geckoTerminalService.getFamousTokens();
+      
+      // Update cache
+      this.geckoTerminalCache = tokens;
+      this.geckoTerminalCacheTime = now;
+      
+      return tokens;
+    } catch (error) {
+      logger.warn('Failed to fetch GeckoTerminal tokens, using cached data or empty array', { error });
+      
+      // Return cached data even if expired, or empty array
+      return this.geckoTerminalCache || [];
+    }
   }
 
   async getTokens(
@@ -24,44 +61,25 @@ export class TokenAggregationService {
     pagination?: PaginationOptions
   ): Promise<TokenListResponse> {
     try {
-      logger.info('Fetching aggregated token data', { filters, sort, pagination });
+      logger.info('Fetching tokens with filters and pagination', { filters, sort, pagination });
 
+      // Get cached or fresh token data
       let allTokens = await this.getCachedOrFreshTokens();
 
+      // Apply filters
       if (filters) {
         allTokens = this.applyFilters(allTokens, filters);
       }
 
+      // Apply sorting
       if (sort) {
-        logger.info('Applying custom sorting', { sort });
         allTokens = this.applySorting(allTokens, sort);
-      } else {
-        // Apply default sorting by volume (descending) to show most relevant tokens first
-        logger.info('Applying default sorting by volume (descending)');
-        allTokens = this.applySorting(allTokens, { field: 'volume', direction: 'desc' });
       }
 
-      const paginatedResult = this.applyPagination(allTokens, pagination);
-
-      // Log the first few tokens to see the sorting effect
-      logger.info('Top tokens after sorting', {
-        topTokens: paginatedResult.tokens.slice(0, 3).map(t => ({
-          address: t.token_address.slice(0, 8) + '...',
-          name: t.token_name,
-          source: t.source,
-          volume_usd: t.volume_usd
-        }))
-      });
-
-      logger.info('Successfully aggregated token data', {
-        totalTokens: allTokens.length,
-        returnedTokens: paginatedResult.tokens.length,
-        hasMore: paginatedResult.pagination.has_more,
-      });
-
-      return paginatedResult;
+      // Apply pagination and return
+      return this.applyPagination(allTokens, pagination);
     } catch (error) {
-      logger.error('Failed to get aggregated tokens', { error });
+      logger.error('Failed to get tokens', { error, filters, sort, pagination });
       throw error;
     }
   }
@@ -72,58 +90,113 @@ export class TokenAggregationService {
     pagination?: PaginationOptions
   ): Promise<TokenListResponse> {
     try {
-      if (!query || query.trim().length < 2) {
-        throw new ValidationError('Search query must be at least 2 characters long');
-      }
+      logger.info('Searching tokens', { query, sort, pagination });
 
-      logger.info('Searching tokens via DexScreener', { query });
+      // Search tokens using DexScreener
+      let searchResults = await this.dexScreenerService.searchTokens(query);
 
-      // Only search via DexScreener now
-      const dexScreenerTokens = await this.dexScreenerService.searchTokens(query.trim());
-      
-      let allTokens: Token[] = [...dexScreenerTokens];
-
-      // Enrich with Jupiter prices
-      allTokens = await this.jupiterService.enrichTokensWithPrices(allTokens);
-
+      // Apply sorting if specified
       if (sort) {
-        allTokens = this.applySorting(allTokens, sort);
-      } else {
-        // Apply default sorting by volume (descending) to show most relevant tokens first
-        allTokens = this.applySorting(allTokens, { field: 'volume', direction: 'desc' });
+        searchResults = this.applySorting(searchResults, sort);
       }
 
-      const paginatedResult = this.applyPagination(allTokens, pagination);
-
-      logger.info('Successfully searched tokens', {
-        query,
-        totalFound: allTokens.length,
-        returnedTokens: paginatedResult.tokens.length,
-      });
-
-      return paginatedResult;
+      // Apply pagination and return
+      return this.applyPagination(searchResults, pagination);
     } catch (error) {
-      logger.error('Failed to search tokens', { query, error });
+      logger.error('Failed to search tokens', { error, query, sort, pagination });
       throw error;
     }
   }
 
   async getTrendingTokens(limit: number = 50): Promise<Token[]> {
     try {
-      logger.info('Fetching trending tokens from DexScreener', { limit });
-
-      const dexScreenerTokens = await this.dexScreenerService.getTrendingTokens();
+      logger.info('Fetching trending tokens from multiple sources', { limit });
       
-      let allTokens: Token[] = [...dexScreenerTokens];
+      // Get tokens from both DexScreener and GeckoTerminal  
+      const [dexScreenerTokens, geckoTerminalTokens] = await Promise.allSettled([
+        this.dexScreenerService.getTrendingTokens(),
+        this.getCachedGeckoTerminalTokens()
+      ]);
 
+      let allTokens: Token[] = [];
+
+      // Add DexScreener tokens if successful
+      if (dexScreenerTokens.status === 'fulfilled') {
+        allTokens.push(...dexScreenerTokens.value);
+      } else {
+        logger.warn('Failed to fetch DexScreener trending tokens', { 
+          error: dexScreenerTokens.reason 
+        });
+      }
+
+      // Add GeckoTerminal tokens if successful
+      if (geckoTerminalTokens.status === 'fulfilled') {
+        allTokens.push(...geckoTerminalTokens.value);
+      } else {
+        logger.warn('Failed to fetch GeckoTerminal famous tokens', { 
+          error: geckoTerminalTokens.reason 
+        });
+      }
+
+      // Remove duplicates based on token address
+      allTokens = this.removeDuplicates(allTokens);
+      
       // Enrich with Jupiter prices
       allTokens = await this.jupiterService.enrichTokensWithPrices(allTokens);
+      
+      logger.info('Successfully fetched trending tokens from all sources', { 
+        count: allTokens.length 
+      });
 
       return allTokens
         .sort((a, b) => (b.volume_usd || 0) - (a.volume_usd || 0))
         .slice(0, limit);
     } catch (error) {
       logger.error('Failed to fetch trending tokens', { error });
+      throw error;
+    }
+  }
+
+  async getFeaturedTokens(): Promise<Token[]> {
+    try {
+      logger.info('Fetching featured tokens from multiple sources');
+
+      // Get tokens from both DexScreener and GeckoTerminal
+      const [dexScreenerTokens, geckoTerminalTokens] = await Promise.allSettled([
+        this.dexScreenerService.getFeaturedTokens(),
+        this.getCachedGeckoTerminalTokens()
+      ]);
+
+      let allTokens: Token[] = [];
+
+      // Add DexScreener tokens if successful
+      if (dexScreenerTokens.status === 'fulfilled') {
+        allTokens.push(...dexScreenerTokens.value);
+      } else {
+        logger.warn('Failed to fetch DexScreener featured tokens', { 
+          error: dexScreenerTokens.reason 
+        });
+      }
+
+      // Add GeckoTerminal tokens if successful
+      if (geckoTerminalTokens.status === 'fulfilled') {
+        allTokens.push(...geckoTerminalTokens.value);
+      } else {
+        logger.warn('Failed to fetch GeckoTerminal famous tokens', { 
+          error: geckoTerminalTokens.reason 
+        });
+      }
+
+      // Remove duplicates based on token address
+      allTokens = this.removeDuplicates(allTokens);
+
+      // Enrich with Jupiter prices
+      allTokens = await this.jupiterService.enrichTokensWithPrices(allTokens);
+
+      return allTokens
+        .sort((a, b) => (b.market_cap_usd || 0) - (a.market_cap_usd || 0));
+    } catch (error) {
+      logger.error('Failed to fetch featured tokens', { error });
       throw error;
     }
   }
@@ -149,25 +222,53 @@ export class TokenAggregationService {
 
   private async fetchTokensFromAllSources(): Promise<Token[]> {
     try {
-      logger.info('Fetching tokens from DexScreener');
-      const dexScreenerTokens = await this.dexScreenerService.getTrendingTokens();
+      logger.info('Fetching tokens from all sources');
       
-      let allTokens: Token[] = [...dexScreenerTokens];
+      // Get tokens from both DexScreener and GeckoTerminal
+      const [dexScreenerTokens, geckoTerminalTokens] = await Promise.allSettled([
+        this.dexScreenerService.getTrendingTokens(),
+        this.getCachedGeckoTerminalTokens()
+      ]);
 
-      logger.info('Successfully fetched tokens from DexScreener', { 
-        count: dexScreenerTokens.length 
-      });
+      let allTokens: Token[] = [];
+
+      // Add DexScreener tokens if successful
+      if (dexScreenerTokens.status === 'fulfilled') {
+        allTokens.push(...dexScreenerTokens.value);
+        logger.info('Successfully fetched tokens from DexScreener', { 
+          count: dexScreenerTokens.value.length 
+        });
+      } else {
+        logger.warn('Failed to fetch DexScreener tokens', { 
+          error: dexScreenerTokens.reason 
+        });
+      }
+
+      // Add GeckoTerminal tokens if successful
+      if (geckoTerminalTokens.status === 'fulfilled') {
+        allTokens.push(...geckoTerminalTokens.value);
+        logger.info('Successfully fetched tokens from GeckoTerminal', { 
+          count: geckoTerminalTokens.value.length 
+        });
+      } else {
+        logger.warn('Failed to fetch GeckoTerminal tokens', { 
+          error: geckoTerminalTokens.reason 
+        });
+      }
+
+      // Remove duplicates based on token address
+      allTokens = this.removeDuplicates(allTokens);
 
       // Enrich with Jupiter prices
       allTokens = await this.jupiterService.enrichTokensWithPrices(allTokens);
 
-      logger.info('Successfully enriched tokens with Jupiter prices', {
+      logger.info('Successfully fetched and processed tokens from all sources', {
         totalTokens: allTokens.length
       });
 
       return allTokens;
     } catch (error) {
-      logger.error('Failed to fetch tokens from DexScreener', { error });
+      logger.error('Failed to fetch tokens from all sources', { error });
       throw error;
     }
   }
@@ -285,5 +386,20 @@ export class TokenAggregationService {
       size: redisStats.keys, // For backward compatibility
       entries: [], // Redis doesn't easily return all keys, would be expensive
     };
+  }
+
+  private removeDuplicates(tokens: Token[]): Token[] {
+    const uniqueTokens = new Map<string, Token>();
+    
+    for (const token of tokens) {
+      const key = token.token_address;
+      const existingToken = uniqueTokens.get(key);
+      
+      if (!existingToken || token.updated_at > existingToken.updated_at) {
+        uniqueTokens.set(key, token);
+      }
+    }
+    
+    return Array.from(uniqueTokens.values());
   }
 }
