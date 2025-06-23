@@ -81,6 +81,7 @@ export interface ApiResponse<T = any> {
 class HttpClient {
   private client: AxiosInstance;
   private requestQueue = new RequestQueue();
+  private requestCounter = 0;
 
   constructor() {
     this.client = axios.create({
@@ -106,8 +107,9 @@ class HttpClient {
     // Lightweight request interceptor
     this.client.interceptors.request.use(
       (config: any) => {
-        // Minimal request tracking
-        config.headers['x-request-id'] = `${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+        // Minimal request tracking with deterministic ID
+        this.requestCounter = (this.requestCounter + 1) % 10000;
+        config.headers['x-request-id'] = `${Date.now()}-${process.pid || 0}-${this.requestCounter.toString().padStart(4, '0')}`;
         
         // Only log in development and only for errors
         if (process.env.NODE_ENV === 'development' && config.url?.includes('error')) {

@@ -9,6 +9,7 @@ import tokenRoutes from '@/routes/tokens';
 import healthRoutes from '@/routes/health';
 import config from '@/config';
 import logger from '@/utils/logger';
+import { Request, Response, NextFunction } from 'express';
 
 class AxiomServer {
   private app: express.Application;
@@ -67,21 +68,22 @@ class AxiomServer {
     this.app.use(express.json({ limit: '10mb' }));
     this.app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-    // Request logging middleware
-    this.app.use((req, res, next) => {
-      const requestId = req.headers['x-request-id'] as string || 
-        Math.random().toString(36).substring(2, 15);
-      
+    // Request counter for deterministic IDs
+    let requestCounter = 0;
+
+    // Enhanced request logging middleware with deterministic ID
+    this.app.use((req: Request, res: Response, next: NextFunction) => {
+      requestCounter = (requestCounter + 1) % 10000;
+      const requestId = `${Date.now()}-${process.pid || 0}-${requestCounter.toString().padStart(4, '0')}`;
       req.headers['x-request-id'] = requestId;
       
-      logger.info('Incoming request', {
-        requestId,
+      logger.info('Request received', {
+        requestId: requestId,
         method: req.method,
         url: req.url,
-        userAgent: req.headers['user-agent'],
-        ip: req.ip,
+        userAgent: req.get('User-Agent'),
       });
-
+      
       next();
     });
   }

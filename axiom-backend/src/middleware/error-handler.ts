@@ -3,85 +3,43 @@ import { ApiResponse } from '@/types/api';
 import { isApiError } from '@/utils/errors';
 import logger from '@/utils/logger';
 
+// Error counter for deterministic IDs
+let errorCounter = 0;
+
 export const errorHandler = (
-  error: any,
+  err: any,
   req: Request,
   res: Response,
   next: NextFunction
 ): void => {
-  // Generate request ID for tracking
-  const requestId = req.headers['x-request-id'] as string || 
-    Math.random().toString(36).substring(2, 15);
+  // Generate deterministic error ID
+  errorCounter = (errorCounter + 1) % 10000;
+  const errorId = `ERR-${Date.now()}-${errorCounter.toString().padStart(4, '0')}`;
+  
+  const requestId = (req.headers['x-request-id'] as string) || 'unknown';
 
-  // Log the error
+  // Log error with context
   logger.error('Request error', {
+    errorId,
     requestId,
-    method: req.method,
+    message: err.message || 'Unknown error',
+    stack: err.stack,
     url: req.url,
-    error: error.message,
-    stack: error.stack,
+    method: req.method,
     body: req.body,
     query: req.query,
     params: req.params,
   });
 
-  // Prepare response
-  const response: ApiResponse = {
+  // Send structured error response
+  res.status(err.status || 500).json({
     success: false,
+    error: {
+      message: err.message || 'Internal server error',
+      code: err.code || 'INTERNAL_ERROR',
+      error_id: errorId,
+    },
     timestamp: Date.now(),
     request_id: requestId,
-    error: {
-      message: 'Internal server error',
-      code: 'INTERNAL_ERROR',
-    },
-  };
-
-  // Handle known API errors
-  if (isApiError(error)) {
-    response.error = {
-      message: error.message,
-      code: error.code,
-      details: error.details,
-    };
-    res.status(error.statusCode).json(response);
-    return;
-  }
-
-  // Handle validation errors
-  if (error.name === 'ValidationError') {
-    response.error = {
-      message: error.message,
-      code: 'VALIDATION_ERROR',
-      details: error.details,
-    };
-    res.status(400).json(response);
-    return;
-  }
-
-  // Handle Joi validation errors
-  if (error.isJoi) {
-    response.error = {
-      message: 'Validation failed',
-      code: 'VALIDATION_ERROR',
-      details: error.details.map((detail: any) => ({
-        field: detail.path.join('.'),
-        message: detail.message,
-      })),
-    };
-    res.status(400).json(response);
-    return;
-  }
-
-  // Handle rate limiting errors
-  if (error.type === 'entity.too.large') {
-    response.error = {
-      message: 'Request payload too large',
-      code: 'PAYLOAD_TOO_LARGE',
-    };
-    res.status(413).json(response);
-    return;
-  }
-
-  // Default to 500 for unknown errors
-  res.status(500).json(response);
+  });
 }; 

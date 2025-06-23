@@ -141,10 +141,10 @@ export class WebSocketServer {
   }
 
   private startPeriodicUpdates(): void {
-    // Start periodic price updates every 5 seconds
-    this.priceUpdateInterval = setInterval(async () => {
-      await this.broadcastPriceUpdates();
-    }, 5000);
+    // Real-time price updates every 30 seconds (reduced frequency for real API calls)
+    this.priceUpdateInterval = setInterval(() => {
+      this.broadcastPriceUpdates();
+    }, 5000); // 5 seconds instead of 30 seconds
 
     // Schedule cache refresh every 30 seconds using cron
     cron.schedule('*/30 * * * * *', async () => {
@@ -155,7 +155,7 @@ export class WebSocketServer {
       }
     });
 
-    logger.info('Started periodic WebSocket updates');
+    logger.info('Started periodic WebSocket updates with real API data');
   }
 
   private async broadcastPriceUpdates(): Promise<void> {
@@ -164,83 +164,73 @@ export class WebSocketServer {
         return; // No clients connected, skip update
       }
 
-      // Get current token data or use cached data for simulation
-      let currentTokens = this.lastTokenData;
-      
-      // If we have existing data, simulate price movements for demo
-      if (currentTokens.length > 0) {
-        // Create simulated price updates for a subset of tokens
-        const tokensToUpdate = currentTokens
-          .sort(() => Math.random() - 0.5)
-          .slice(0, Math.floor(currentTokens.length * 0.2)) // Update 20% of tokens
-          .slice(0, 8); // Max 8 tokens per update
-
-        const simulatedUpdates = tokensToUpdate
-          .filter(token => token.price_usd != null)
-          .map(token => {
-            // Generate price movement (-10% to +10%)
-            const priceChangePercent = (Math.random() - 0.5) * 20;
-            const newPrice = token.price_usd! * (1 + priceChangePercent / 100);
-            
-            // Generate volume changes (-30% to +50%)
-            const volumeChangePercent = (Math.random() - 0.3) * 80;
-            const newVolume = (token.volume_usd || 0) * (1 + volumeChangePercent / 100);
-            
-            // Generate liquidity changes (-10% to +15%)
-            const liquidityChangePercent = (Math.random() - 0.4) * 25;
-            const newLiquidity = (token.liquidity_usd || 0) * (1 + liquidityChangePercent / 100);
-            
-            return {
-              token_address: token.token_address,
-              old_price: token.price_usd!,
-              new_price: newPrice,
-              price_change_percent: priceChangePercent,
-              old_volume: token.volume_usd || 0,
-              new_volume: Math.max(0, newVolume),
-              volume_change_percent: volumeChangePercent,
-              old_liquidity: token.liquidity_usd || 0,
-              new_liquidity: Math.max(0, newLiquidity),
-              liquidity_change_percent: liquidityChangePercent,
-            };
-          });
-
-        if (simulatedUpdates.length > 0) {
-          const message: WebSocketMessage = {
-            type: 'price_update',
-            data: {
-              updates: simulatedUpdates,
-              timestamp: Date.now(),
-            },
-            timestamp: Date.now(),
-          };
-
-          // Broadcast to all clients subscribed to token updates
-          this.io.to('token_updates').emit('price_update', message);
-          
-          logger.debug('Broadcasted simulated price updates', { 
-            updateCount: simulatedUpdates.length,
-            clientCount: this.connectedClients.size 
-          });
-
-          // Update our cached data with new prices, volume, and liquidity
-          simulatedUpdates.forEach(update => {
-            const tokenIndex = this.lastTokenData.findIndex(t => t.token_address === update.token_address);
-            if (tokenIndex !== -1 && this.lastTokenData[tokenIndex]) {
-              this.lastTokenData[tokenIndex].price_usd = update.new_price;
-              this.lastTokenData[tokenIndex].volume_usd = update.new_volume;
-              this.lastTokenData[tokenIndex].liquidity_usd = update.new_liquidity;
-              this.lastTokenData[tokenIndex].updated_at = Date.now();
-            }
-          });
-        }
-      } else {
-        // First time - get fresh data from API
-        const freshTokens = await this.tokenService.getTrendingTokens(50);
-        this.lastTokenData = freshTokens;
+      // Get fresh token data from APIs instead of simulating
+      try {
+        const currentTokens = await this.tokenService.getTrendingTokens(50);
         
-        logger.debug('Loaded initial token data for WebSocket', { 
-          tokenCount: freshTokens.length 
-        });
+        if (currentTokens.length > 0) {
+          // Detect real price changes if we have previous data
+          if (this.lastTokenData.length > 0) {
+            const priceChanges = this.detectPriceChanges(this.lastTokenData, currentTokens);
+            
+            if (priceChanges.length > 0) {
+              const message: WebSocketMessage = {
+                type: 'price_update',
+                data: {
+                  updates: priceChanges.map(change => ({
+                    token_address: change.token_address,
+                    old_price: change.old_price,
+                    new_price: change.new_price,
+                    price_change_percent: change.change_percent,
+                    // Real volume and liquidity data from API
+                    old_volume: this.lastTokenData.find(t => t.token_address === change.token_address)?.volume_usd || 0,
+                    new_volume: currentTokens.find(t => t.token_address === change.token_address)?.volume_usd || 0,
+                    volume_change_percent: 0, // Calculate real change
+                    old_liquidity: this.lastTokenData.find(t => t.token_address === change.token_address)?.liquidity_usd || 0,
+                    new_liquidity: currentTokens.find(t => t.token_address === change.token_address)?.liquidity_usd || 0,
+                    liquidity_change_percent: 0, // Calculate real change
+                  })),
+                  timestamp: Date.now(),
+                },
+                timestamp: Date.now(),
+              };
+
+              // Calculate real volume and liquidity changes
+              message.data.updates.forEach((update: {
+                token_address: string;
+                old_price: number;
+                new_price: number;
+                price_change_percent: number;
+                old_volume: number;
+                new_volume: number;
+                volume_change_percent: number;
+                old_liquidity: number;
+                new_liquidity: number;
+                liquidity_change_percent: number;
+              }) => {
+                if (update.old_volume > 0) {
+                  update.volume_change_percent = ((update.new_volume - update.old_volume) / update.old_volume) * 100;
+                }
+                if (update.old_liquidity > 0) {
+                  update.liquidity_change_percent = ((update.new_liquidity - update.old_liquidity) / update.old_liquidity) * 100;
+                }
+              });
+
+              // Broadcast to all clients subscribed to token updates
+              this.io.to('token_updates').emit('price_update', message);
+              
+              logger.debug('Broadcasted real price updates', { 
+                updateCount: priceChanges.length,
+                clientCount: this.connectedClients.size 
+              });
+            }
+          }
+          
+          // Update our cached data with fresh API data
+          this.lastTokenData = currentTokens;
+        }
+      } catch (apiError) {
+        logger.warn('Failed to fetch fresh token data for updates, skipping broadcast', { error: apiError });
       }
     } catch (error) {
       logger.error('Failed to broadcast price updates', { error });

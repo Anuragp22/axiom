@@ -138,20 +138,22 @@ function generateTokenImage(symbol: string): string {
 
 /**
  * Generate audit information (placeholder implementation)
+ * TODO: Replace with real audit API calls (RugCheck, GoPlus, etc.)
  */
 function generateAuditInfo(token: BackendToken): any {
-  const riskScore = Math.floor(Math.random() * 100);
+  // Return minimal audit info without random data
+  // In production, this should call real audit APIs
   return {
-    honeypot: riskScore > 80,
-    honeypotPercentage: riskScore > 80 ? riskScore : undefined,
-    isVerified: riskScore < 30,
-    isScam: riskScore > 90,
-    rugRisk: riskScore > 70 ? 'high' : riskScore > 40 ? 'medium' : 'low',
+    honeypot: false, // Default to safe
+    honeypotPercentage: undefined,
+    isVerified: false, // Default to unverified
+    isScam: false, // Default to not scam
+    rugRisk: 'unknown', // Default to unknown risk
     liquidityLocked: token.liquidity_usd ? token.liquidity_usd > 100000 : false,
-    mintDisabled: Math.random() > 0.3,
-    riskScore,
-    burnPercentage: Math.floor(Math.random() * 100),
-    isPaid: Math.random() > 0.7,
+    mintDisabled: undefined, // Unknown without real audit data
+    riskScore: undefined, // No score without real audit
+    burnPercentage: undefined, // Unknown without real audit data
+    isPaid: false, // Default to unpaid
   };
 }
 
