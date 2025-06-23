@@ -51,6 +51,7 @@ export function Header() {
           variant="ghost"
           onClick={() => handleTabChange('dex-screener')}
           className="flex flex-row h-[32px] gap-[24px] justify-start items-center p-0 hover:bg-transparent"
+          aria-label="Switch to DEX Screener tab"
         >
           <span className={cn(
             "text-[14px] sm:text-[20px] font-medium tracking-[-0.02em] transition-colors duration-150",
@@ -64,6 +65,7 @@ export function Header() {
           variant="ghost"
           onClick={() => handleTabChange('trending')}
           className="flex flex-row h-[32px] gap-[24px] justify-start items-center p-0 hover:bg-transparent"
+          aria-label="Switch to Trending tab"
         >
           <span className={cn(
             "text-[16px] sm:text-[20px] font-medium tracking-[-0.02em] transition-colors duration-150",
@@ -77,6 +79,7 @@ export function Header() {
           variant="ghost"
           onClick={() => handleTabChange('pump-live')}
           className="flex flex-row h-[32px] gap-[24px] justify-start items-center p-0 hover:bg-transparent"
+          aria-label="Switch to Pump Live tab"
         >
           <span className={cn(
             "text-[16px] sm:text-[20px] font-medium tracking-[-0.02em] transition-colors duration-150",
@@ -105,6 +108,8 @@ export function Header() {
                   "hover:bg-primaryBlue/20 hover:text-primaryBlue hover:[transition:background-color_135ms_ease-in-out,color_135ms_ease-in-out] rounded-[4px]",
                   activeTimeframe === timeframe.id ? "text-primaryBlue" : "text-textPrimary"
                 )}
+                aria-label={`Set timeframe to ${timeframe.label}`}
+                aria-pressed={activeTimeframe === timeframe.id}
               >
                 <span className="text-[14px] font-medium">{timeframe.label}</span>
               </Button>
@@ -124,6 +129,7 @@ export function Header() {
               variant="ghost"
               onClick={() => console.log('Settings clicked')}
               className="group flex flex-row p-[4px] min-w-[32px] max-w-[32px] w-[32px] h-[32px] justify-center items-center hover:bg-secondaryStroke/30 transition-opacity duration-150 ease-in-out cursor-pointer rounded-full"
+              aria-label="Open settings menu"
             >
               <i className="ri-settings-3-line text-[18px] text-textSecondary group-hover:text-textPrimary transition-colors duration-150 ease-in-out cursor-pointer" />
             </Button>
@@ -134,6 +140,7 @@ export function Header() {
                 <Button
                   variant="ghost"
                   className="flex border border-primaryStroke group flex-row p-[4px] pr-[12px] pl-[12px] h-[32px] gap-[8px] justify-center items-center hover:bg-primaryStroke/35 transition-colors duration-125 cursor-pointer rounded-full"
+                  aria-label="Open wallet menu - 1 wallet connected with 0 balance"
                 >
                   <div className="flex flex-row gap-[4px] justify-center items-center">
                     <i className="ri-wallet-line text-[18px] text-textSecondary group-hover:text-textPrimary transition-colors duration-150 ease-in-out cursor-pointer" />
@@ -162,6 +169,7 @@ export function Header() {
                   type="text"
                   value={quickBuyAmount}
                   onChange={handleQuickBuyAmountChange}
+                  aria-label="Quick buy amount"
                 />
               </div>
               <div className="w-4 h-4 bg-purple-500 rounded-full flex-shrink-0"></div>
@@ -169,6 +177,7 @@ export function Header() {
                 <Button
                   variant="ghost"
                   className="group w-[24px] h-[24px] flex flex-row gap-[4px] rounded-[4px] justify-center items-center transition-colors ease-in-out duration-125 hover:bg-primaryBlueHover/10 p-0"
+                  aria-label="Quick buy preset 1"
                 >
                   <span className="text-[13px] gap-[4px] flex flex-row justify-center items-center font-medium transition-colors ease-in-out duration-125 text-primaryBlue hover:text-primaryBlueHover">
                     P1
@@ -177,6 +186,7 @@ export function Header() {
                 <Button
                   variant="ghost"
                   className="group w-[24px] h-[24px] flex flex-row gap-[4px] rounded-[4px] justify-center items-center transition-colors ease-in-out duration-125 hover:bg-primaryStroke/60 p-0"
+                  aria-label="Quick buy preset 2"
                 >
                   <span className="text-[13px] gap-[4px] flex flex-row justify-center items-center font-medium transition-colors ease-in-out duration-125 text-textSecondary">
                     P2
@@ -185,6 +195,7 @@ export function Header() {
                 <Button
                   variant="ghost"
                   className="group w-[24px] h-[24px] flex flex-row gap-[4px] rounded-r-full rounded-l-[4px] justify-center items-center transition-colors ease-in-out duration-125 hover:bg-primaryStroke/60 p-0"
+                  aria-label="Quick buy preset 3"
                 >
                   <span className="text-[13px] gap-[4px] flex flex-row justify-center items-center font-medium transition-colors ease-in-out duration-125 text-textSecondary">
                     P3

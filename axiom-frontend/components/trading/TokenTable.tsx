@@ -109,6 +109,7 @@ const TokenRow = ({
                     rel="noopener noreferrer" 
                     className="text-[#5DBCFF] hover:text-[#70c4ff] transition-colors"
                     onClick={(e) => e.stopPropagation()}
+                    aria-label={`View ${token.name} community page (opens in new tab)`}
                   >
                     <i className="ri-group-3-line text-sm"></i>
                   </a>
@@ -181,6 +182,7 @@ const TokenRow = ({
                       <button 
                         className="absolute inset-0 bg-black/50 opacity-0 group-hover/image:opacity-100 transition-opacity duration-200 flex items-center justify-center"
                         onClick={(e) => e.stopPropagation()}
+                        aria-label={`View ${token.name} token details`}
                       >
                         <i className="ri-camera-line text-white text-[16px] sm:text-[20px] lg:text-[24px]"></i>
                       </button>
@@ -205,7 +207,7 @@ const TokenRow = ({
                   <span className="text-textTertiary text-[12px] sm:text-[16px] font-medium tracking-[-0.02em] group-hover:text-primaryBlueHover transition-colors duration-[125ms] cursor-pointer">
                     {token.symbol.length > 8 ? `${token.symbol.substring(0, 8)}...` : token.symbol}
                   </span>
-                  <button className="group-hover:text-primaryBlue transition-colors duration-200 cursor-pointer">
+                  <button className="group-hover:text-primaryBlue transition-colors duration-200 cursor-pointer" aria-label={`Copy ${token.symbol} token symbol to clipboard`}>
                     <i className="text-textTertiary ri-file-copy-fill text-[12px] sm:text-[14px] group-hover:text-primaryBlueHover"></i>
                   </button>
                 </div>
@@ -221,6 +223,7 @@ const TokenRow = ({
                   target="_blank" 
                   rel="noopener noreferrer" 
                   className="text-[#5DBCFF] hover:text-[#70c4ff] transition-colors duration-[125ms] flex flex-row flex-shrink-0 gap-[2px] justify-start items-center cursor-pointer"
+                  aria-label={`View ${token.name} community page (opens in new tab)`}
                 >
                   <i className="ri-group-3-line" style={{ fontSize: '16px' }}></i>
                 </a>
@@ -230,6 +233,7 @@ const TokenRow = ({
                 target="_blank" 
                 rel="noopener noreferrer" 
                 className="flex items-center"
+                aria-label={`Search for ${token.symbol} on X (formerly Twitter) (opens in new tab)`}
               >
                 <i className="text-textSecondary ri-search-line text-[14px] sm:text-[16px] hover:text-primaryBlueHover transition-colors duration-[125ms]"></i>
               </a>
@@ -347,6 +351,7 @@ const TokenRow = ({
                 onBuy?.(token);
               }}
               className="bg-primaryBlue hover:bg-primaryBlueHover text-textPrimary font-medium py-[6px] px-[16px] rounded-[4px] text-[12px] sm:text-[14px] transition-colors duration-150"
+              aria-label={`Buy ${token.name} (${token.symbol})`}
             >
               Buy
             </button>
@@ -356,6 +361,7 @@ const TokenRow = ({
                 onFavorite?.(token.id);
               }}
               className="text-textSecondary hover:text-primaryBlue transition-colors duration-150"
+              aria-label={`Add ${token.name} to favorites`}
             >
               <i className="ri-star-line text-[16px] sm:text-[18px]"></i>
             </button>
@@ -365,6 +371,7 @@ const TokenRow = ({
                 onSelect?.(token.id);
               }}
               className="text-textSecondary hover:text-primaryBlue transition-colors duration-150"
+              aria-label={isSelected ? `Deselect ${token.name}` : `Select ${token.name}`}
             >
               <i className={`text-[16px] sm:text-[18px] ${isSelected ? 'ri-checkbox-fill text-primaryBlue' : 'ri-checkbox-blank-line'}`}></i>
             </button>
@@ -537,6 +544,7 @@ export const TokenTable = () => {
       <button
         onClick={() => handleSort(field)}
         className="flex items-center gap-1 text-textSecondary hover:text-textPrimary transition-colors text-[10px] lg:text-[14px] font-medium uppercase tracking-wider"
+        aria-label={`Sort by ${field} ${isActive ? (direction === 'asc' ? 'descending' : 'ascending') : 'descending'}`}
       >
         {children}
         {isActive && (

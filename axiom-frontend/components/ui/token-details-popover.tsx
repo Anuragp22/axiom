@@ -71,7 +71,7 @@ export const TokenDetailsPopover: React.FC<TokenDetailsPopoverProps> = ({
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-1">
                 <h3 className="text-white text-lg font-semibold truncate">{token.name}</h3>
-                <button className="text-gray-400 hover:text-white transition-colors">
+                <button className="text-gray-400 hover:text-white transition-colors" aria-label={`Copy ${token.name} address to clipboard`}>
                   <i className="ri-file-copy-line text-sm"></i>
                 </button>
               </div>
@@ -85,6 +85,7 @@ export const TokenDetailsPopover: React.FC<TokenDetailsPopoverProps> = ({
                   target="_blank" 
                   rel="noopener noreferrer"
                   className="text-[#5DBCFF] hover:text-[#70c4ff] transition-colors"
+                  aria-label={`View ${token.name} community page (opens in new tab)`}
                 >
                   <i className="ri-group-3-line text-lg"></i>
                 </a>
@@ -93,6 +94,7 @@ export const TokenDetailsPopover: React.FC<TokenDetailsPopoverProps> = ({
                   target="_blank" 
                   rel="noopener noreferrer"
                   className="text-gray-400 hover:text-white transition-colors"
+                  aria-label={`Search for ${token.symbol} on X (formerly Twitter) (opens in new tab)`}
                 >
                   <i className="ri-search-line text-lg"></i>
                 </a>
@@ -101,6 +103,7 @@ export const TokenDetailsPopover: React.FC<TokenDetailsPopoverProps> = ({
                   target="_blank" 
                   rel="noopener noreferrer"
                   className="text-gray-400 hover:text-white transition-colors"
+                  aria-label={`View ${token.name} trading pair details (opens in new tab)`}
                 >
                   <i className="ri-external-link-line text-lg"></i>
                 </a>
