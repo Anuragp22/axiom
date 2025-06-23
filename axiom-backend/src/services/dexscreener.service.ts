@@ -11,6 +11,18 @@ export class DexScreenerService {
     'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
   ];
 
+  // Known popular token addresses for batch fetching
+  private popularTokenAddresses: string[] = [
+    'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', // BONK
+    'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm', // WIF  
+    'A8C3xuqscfmyLrte3VmTqrAq8kgMASius9AFNANwpump', // POPCAT
+    '27G8MtK7VtTcCHkpASjSDdkWWYfoqT6ggEuKidVJidD4', // JTO
+    'HezGWsxCCpBfbHwKNbKHzGWoRGUkg7KkqGWnhFyq3V3y', // LAUNCHCOIN
+    '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM', // BONK (alternative)
+    'Df6yfrKC8kZE3KNkrHERKzAetSxbrWeniQfyJY4Jpump', // CHILLGUY
+    'CzLSujWBLFsSjncfkh59rUFqvafWcY5tzedWJSuypump'  // Fartcoin
+  ];
+
   constructor() {
     this.httpClient = new HttpClient(config.apis.dexScreener);
   }
@@ -52,7 +64,7 @@ export class DexScreenerService {
   }
 
   /**
-   * Get multiple token pairs by addresses
+   * Get multiple token pairs by addresses using batch API
    */
   async getMultipleTokens(tokenAddresses: string[]): Promise<Token[]> {
     try {
@@ -60,25 +72,55 @@ export class DexScreenerService {
       const batches = this.chunkArray(tokenAddresses, 30);
       const allTokens: Token[] = [];
 
-      for (const batch of batches) {
+      // Process batches in parallel for maximum speed
+      const batchPromises = batches.map(async (batch) => {
         const addressesParam = batch.join(',');
-        logger.info('Fetching multiple tokens from DexScreener', { 
-          addresses: addressesParam,
-          count: batch.length 
+        logger.info('Fetching batch of tokens from DexScreener', { 
+          count: batch.length,
+          addresses: addressesParam.substring(0, 100) + '...' // Log truncated addresses
         });
 
-        const response = await this.httpClient.get<DexScreenerToken[]>(
-          `/latest/dex/tokens/solana/${addressesParam}`
-        );
+        try {
+          // Use the correct DexScreener batch endpoint
+          const response = await this.httpClient.get<DexScreenerToken[]>(
+            `/latest/dex/tokens/${addressesParam}`
+          );
 
-        const tokens = this.transformTokens(response);
-        allTokens.push(...tokens);
-      }
+          logger.debug('Batch API response received', {
+            responseLength: response?.length || 0,
+            hasData: !!response
+          });
 
-      return allTokens;
+          return this.transformTokens(response || []);
+        } catch (error) {
+          logger.warn('Failed to fetch batch of tokens', { 
+            batchSize: batch.length,
+            endpoint: `/latest/dex/tokens/${addressesParam}`,
+            error: error instanceof Error ? error.message : error
+          });
+          return [];
+        }
+      });
+
+      // Execute all batches in parallel
+      const batchResults = await Promise.allSettled(batchPromises);
+      
+      // Collect successful results
+      batchResults.forEach(result => {
+        if (result.status === 'fulfilled') {
+          allTokens.push(...result.value);
+        }
+      });
+
+      logger.info('Successfully fetched multiple tokens from DexScreener', {
+        totalTokens: allTokens.length,
+        requestedAddresses: tokenAddresses.length
+      });
+
+      return this.removeDuplicates(allTokens);
     } catch (error) {
       logger.error('Failed to fetch multiple tokens from DexScreener', { 
-        tokenAddresses, 
+        tokenAddresses: tokenAddresses.length, 
         error 
       });
       throw new ExternalApiError('DexScreener', `Multiple tokens fetch failed: ${error}`);
@@ -86,36 +128,54 @@ export class DexScreenerService {
   }
 
   /**
-   * Get trending tokens using search for popular tokens
+   * Get trending tokens using parallel search for reliable results
    */
   async getTrendingTokens(): Promise<Token[]> {
     try {
-      logger.info('Fetching trending tokens from DexScreener using search');
+      logger.info('Fetching trending tokens from DexScreener using parallel search');
       
-      // Reduced to only 8 tokens to avoid rate limiting (300 requests/minute = 5 requests/second max)
+      // Use parallel search for popular tokens (more reliable than batch API)
       const popularTokens = [
-        'LAUNCHCOIN', 'Fartcoin', 'USELESS', 'aura', 
-        'GOR', 'BONK', 'WIF', 'POPCAT'
+        'BONK', 'WIF', 'POPCAT', 'JTO', 'PYTH', 'JUP', 
+        'ORCA', 'RAY', 'SAMO', 'FIDA', 'SRM', 'COPE',
+        'MNGO', 'STEP', 'MEDIA', 'ROPE'
       ];
-      const allTokens: Token[] = [];
-
-      for (const tokenName of popularTokens) {
+      
+      logger.info('Starting parallel search for trending tokens', { 
+        tokenCount: popularTokens.length 
+      });
+      
+      const searchPromises = popularTokens.map(async (tokenName) => {
         try {
-          await this.delay(2000); // 2 second delay to stay well under rate limit
           const searchResults = await this.searchTokens(tokenName);
-          if (searchResults.length > 0 && searchResults[0]) {
-            allTokens.push(searchResults[0]);
+          // Return the best result (highest volume)
+          if (searchResults.length > 0) {
+            return searchResults.sort((a, b) => (b.volume_usd || 0) - (a.volume_usd || 0))[0];
           }
+          return null;
         } catch (error) {
           logger.warn(`Failed to search for ${tokenName}`, { error });
+          return null;
         }
-      }
+      });
 
-      logger.info('Successfully fetched trending tokens', { count: allTokens.length });
+      // Execute all searches in parallel (much faster than sequential)
+      const searchResults = await Promise.allSettled(searchPromises);
+      const validTokens = searchResults
+        .filter(result => result.status === 'fulfilled' && result.value)
+        .map(result => (result as PromiseFulfilledResult<Token>).value);
 
-      return allTokens
+      // Remove duplicates and sort by volume
+      const uniqueTokens = this.removeDuplicates(validTokens);
+      
+      logger.info('Successfully fetched trending tokens via parallel search', { 
+        searchedTokens: popularTokens.length,
+        foundTokens: uniqueTokens.length 
+      });
+
+      return uniqueTokens
         .sort((a, b) => (b.volume_usd || 0) - (a.volume_usd || 0))
-        .slice(0, 50); // Increased to show more tokens
+        .slice(0, 50);
     } catch (error) {
       logger.error('Failed to fetch trending tokens', { error });
       throw new ExternalApiError('DexScreener', `Trending tokens fetch failed: ${error}`);
@@ -123,29 +183,18 @@ export class DexScreenerService {
   }
 
   /**
-   * Get featured tokens using search
+   * Get featured tokens using batch API calls
    */
   async getFeaturedTokens(): Promise<Token[]> {
     try {
-      logger.info('Fetching featured tokens from DexScreener');
+      logger.info('Fetching featured tokens from DexScreener using batch API');
       
-      // Search for just 2-3 specific tokens
-      const featuredTokenNames = ['BONK', 'WIF'];
-      const allTokens: Token[] = [];
-
-      for (const tokenName of featuredTokenNames) {
-        try {
-          await this.delay(1000); // 1 second delay for rate limiting
-          const searchResults = await this.searchTokens(tokenName);
-          if (searchResults.length > 0 && searchResults[0]) {
-            allTokens.push(searchResults[0]);
-          }
-        } catch (error) {
-          logger.warn(`Failed to search for featured token ${tokenName}`, { error });
-        }
-      }
-
-      return allTokens.sort((a, b) => (b.volume_usd || 0) - (a.volume_usd || 0));
+      // Use first few addresses from popular tokens for featured
+      const featuredAddresses = this.popularTokenAddresses.slice(0, 4); // BONK, WIF, POPCAT, JTO
+      
+      const featuredTokens = await this.getMultipleTokens(featuredAddresses);
+      
+      return featuredTokens.sort((a, b) => (b.market_cap_usd || 0) - (a.market_cap_usd || 0));
     } catch (error) {
       logger.error('Failed to fetch featured tokens from DexScreener', { error });
       throw new ExternalApiError('DexScreener', `Featured tokens fetch failed: ${error}`);

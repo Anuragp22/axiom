@@ -60,6 +60,7 @@ export function useTokens(
         
         return result;
       } catch (error: any) {
+        console.error('Error fetching tokens:', error);
         dispatch(setLoading({ isLoading: false, error: error.message }));
         throw error;
       }
@@ -69,6 +70,16 @@ export function useTokens(
     enabled,
     refetchOnWindowFocus: false,
     refetchOnMount: true,
+    // Add retry logic
+    retry: (failureCount, error: any) => {
+      // Don't retry if it's a client error (4xx)
+      if (error?.status >= 400 && error?.status < 500) {
+        return false;
+      }
+      // Retry up to 3 times for network errors
+      return failureCount < 3;
+    },
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
   });
 }
 
@@ -158,6 +169,13 @@ export function useTrendingTokens(
     gcTime: CACHE_TIMES.trending * 5,
     enabled,
     refetchOnWindowFocus: false,
+    retry: (failureCount, error: any) => {
+      if (error?.status >= 400 && error?.status < 500) {
+        return false;
+      }
+      return failureCount < 3;
+    },
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
   });
 }
 
@@ -176,6 +194,13 @@ export function useFeaturedTokens(
     gcTime: 30 * 60 * 1000, // 30 minutes
     enabled,
     refetchOnWindowFocus: false,
+    retry: (failureCount, error: any) => {
+      if (error?.status >= 400 && error?.status < 500) {
+        return false;
+      }
+      return failureCount < 3;
+    },
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
   });
 }
 

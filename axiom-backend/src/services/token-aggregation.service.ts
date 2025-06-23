@@ -16,6 +16,9 @@ export class TokenAggregationService {
   private readonly GECKO_CACHE_TTL = 600; // 10 minutes for GeckoTerminal to reduce API calls
   private geckoTerminalCache: Token[] | null = null;
   private geckoTerminalCacheTime: number = 0;
+  
+  // Request deduplication - prevent multiple concurrent API calls
+  private ongoingRequests: Map<string, Promise<Token[]>> = new Map();
 
   constructor() {
     this.dexScreenerService = new DexScreenerService();
@@ -109,52 +112,72 @@ export class TokenAggregationService {
   }
 
   async getTrendingTokens(limit: number = 50): Promise<Token[]> {
+    const cacheKey = `trending_tokens_${limit}`;
+    
+    // Check if there's already an ongoing request
+    const existingRequest = this.ongoingRequests.get(cacheKey);
+    if (existingRequest) {
+      logger.debug('Request deduplication - waiting for ongoing trending fetch');
+      return existingRequest.then(tokens => tokens.slice(0, limit));
+    }
+
     try {
       logger.info('Fetching trending tokens from multiple sources', { limit });
       
-      // Get tokens from both DexScreener and GeckoTerminal  
-      const [dexScreenerTokens, geckoTerminalTokens] = await Promise.allSettled([
-        this.dexScreenerService.getTrendingTokens(),
-        this.getCachedGeckoTerminalTokens()
-      ]);
-
-      let allTokens: Token[] = [];
-
-      // Add DexScreener tokens if successful
-      if (dexScreenerTokens.status === 'fulfilled') {
-        allTokens.push(...dexScreenerTokens.value);
-      } else {
-        logger.warn('Failed to fetch DexScreener trending tokens', { 
-          error: dexScreenerTokens.reason 
-        });
-      }
-
-      // Add GeckoTerminal tokens if successful
-      if (geckoTerminalTokens.status === 'fulfilled') {
-        allTokens.push(...geckoTerminalTokens.value);
-      } else {
-        logger.warn('Failed to fetch GeckoTerminal famous tokens', { 
-          error: geckoTerminalTokens.reason 
-        });
-      }
-
-      // Remove duplicates based on token address
-      allTokens = this.removeDuplicates(allTokens);
+      const fetchPromise = this.fetchTrendingTokensInternal(limit);
+      this.ongoingRequests.set(cacheKey, fetchPromise);
       
-      // Enrich with Jupiter prices
-      allTokens = await this.jupiterService.enrichTokensWithPrices(allTokens);
+      const result = await fetchPromise;
+      this.ongoingRequests.delete(cacheKey);
       
-      logger.info('Successfully fetched trending tokens from all sources', { 
-        count: allTokens.length 
-      });
-
-      return allTokens
-        .sort((a, b) => (b.volume_usd || 0) - (a.volume_usd || 0))
-        .slice(0, limit);
+      return result;
     } catch (error) {
+      this.ongoingRequests.delete(cacheKey);
       logger.error('Failed to fetch trending tokens', { error });
       throw error;
     }
+  }
+
+  private async fetchTrendingTokensInternal(limit: number): Promise<Token[]> {
+    // Get tokens from both DexScreener and GeckoTerminal  
+    const [dexScreenerTokens, geckoTerminalTokens] = await Promise.allSettled([
+      this.dexScreenerService.getTrendingTokens(),
+      this.getCachedGeckoTerminalTokens()
+    ]);
+
+    let allTokens: Token[] = [];
+
+    // Add DexScreener tokens if successful
+    if (dexScreenerTokens.status === 'fulfilled') {
+      allTokens.push(...dexScreenerTokens.value);
+    } else {
+      logger.warn('Failed to fetch DexScreener trending tokens', { 
+        error: dexScreenerTokens.reason 
+      });
+    }
+
+    // Add GeckoTerminal tokens if successful
+    if (geckoTerminalTokens.status === 'fulfilled') {
+      allTokens.push(...geckoTerminalTokens.value);
+    } else {
+      logger.warn('Failed to fetch GeckoTerminal famous tokens', { 
+        error: geckoTerminalTokens.reason 
+      });
+    }
+
+    // Remove duplicates based on token address
+    allTokens = this.removeDuplicates(allTokens);
+    
+    // Enrich with Jupiter prices
+    allTokens = await this.jupiterService.enrichTokensWithPrices(allTokens);
+    
+    logger.info('Successfully fetched trending tokens from all sources', { 
+      count: allTokens.length 
+    });
+
+    return allTokens
+      .sort((a, b) => (b.volume_usd || 0) - (a.volume_usd || 0))
+      .slice(0, limit);
   }
 
   async getFeaturedTokens(): Promise<Token[]> {
@@ -211,13 +234,29 @@ export class TokenAggregationService {
       return cached;
     }
 
-    logger.debug('Cache miss - fetching fresh token data');
-    const freshTokens = await this.fetchTokensFromAllSources();
-    
-    // Store in Redis cache with TTL
-    await this.redisCache.set(cacheKey, freshTokens, this.CACHE_TTL);
+    // Check if there's already an ongoing request for this data
+    const existingRequest = this.ongoingRequests.get(cacheKey);
+    if (existingRequest) {
+      logger.debug('Request deduplication - waiting for ongoing fetch');
+      return existingRequest;
+    }
 
-    return freshTokens;
+    logger.debug('Cache miss - fetching fresh token data');
+    
+    // Create and store the promise to prevent duplicate requests
+    const fetchPromise = this.fetchTokensFromAllSources()
+      .then(async (freshTokens) => {
+        // Store in Redis cache with TTL
+        await this.redisCache.set(cacheKey, freshTokens, this.CACHE_TTL);
+        return freshTokens;
+      })
+      .finally(() => {
+        // Clean up the ongoing request
+        this.ongoingRequests.delete(cacheKey);
+      });
+
+    this.ongoingRequests.set(cacheKey, fetchPromise);
+    return fetchPromise;
   }
 
   private async fetchTokensFromAllSources(): Promise<Token[]> {
@@ -368,7 +407,15 @@ export class TokenAggregationService {
 
   async clearCache(): Promise<void> {
     await this.redisCache.clear();
-    logger.info('Redis token cache cleared');
+    
+    // Clear in-memory caches
+    this.geckoTerminalCache = null;
+    this.geckoTerminalCacheTime = 0;
+    
+    // Clear ongoing requests to force fresh fetches
+    this.ongoingRequests.clear();
+    
+    logger.info('Redis cache cleared');
   }
 
   async getCacheStats(): Promise<{ 
