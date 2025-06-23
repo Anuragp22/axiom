@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import React, { useMemo, useCallback, useEffect } from 'react';
+import React, { useMemo, useCallback, useEffect, useState } from 'react';
 import { SimpleTokenAvatar } from '@/components/ui/token-avatar';
 import { TokenDetailsPopover } from '@/components/ui/token-details-popover';
 import { useTokensWithState } from '@/lib/hooks/useTokens';
@@ -77,6 +77,11 @@ const TokenRow = ({
         isSelected ? 'bg-primaryBlue/10 border-primaryBlue/50' : ''
       }`}
       onClick={() => onDetails?.(token.id)}
+      style={{
+        // Prevent layout shift by reserving space
+        contentVisibility: 'auto',
+        containIntrinsicSize: '1px 88px',
+      }}
     >
       {/* Mobile Layout */}
       <div className="flex sm:hidden flex-col w-full space-y-3">
@@ -529,12 +534,37 @@ export const TokenTable = () => {
       }
     });
 
+    // Limit visible tokens to improve performance
+    const maxVisible = 50; // Limit to 50 tokens for better performance
+    const visibleTokens = sorted.slice(0, maxVisible);
+
     return {
       sortedTokens: sorted,
       totalFilteredCount: filteredTokens.length,
-      paginatedTokens: sorted // Show all filtered tokens instead of paginated
+      paginatedTokens: visibleTokens
     };
-      }, [tokens, filters, searchQuery, quickFilter]);
+  }, [tokens, filters, searchQuery, quickFilter]);
+
+  // Debounced token rendering to prevent main-thread blocking
+  const [debouncedTokens, setDebouncedTokens] = useState<Token[]>([]);
+
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      // Use requestIdleCallback if available to defer heavy rendering
+      if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+        (window as any).requestIdleCallback(() => {
+          setDebouncedTokens(paginatedTokens);
+        });
+      } else {
+        // Fallback to setTimeout
+        setTimeout(() => {
+          setDebouncedTokens(paginatedTokens);
+        }, 0);
+      }
+    }, 100); // 100ms debounce
+
+    return () => clearTimeout(timeoutId);
+  }, [paginatedTokens]);
 
   const SortableHeader = ({ field, children }: { field: string; children: React.ReactNode }) => {
     const isActive = filters.sortBy === field;
@@ -637,7 +667,7 @@ export const TokenTable = () => {
               <TokenTableSkeleton rows={10} />
             ) : (
               <div className="w-full">
-                {paginatedTokens.map((token) => (
+                {debouncedTokens.map((token) => (
                   <TokenRow
                     key={token.id}
                     token={token}

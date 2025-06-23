@@ -1,9 +1,18 @@
 'use client';
 
+import { Suspense, lazy } from 'react';
 import { Header } from '@/components/trading/Header';
-import { TokenTable } from '@/components/trading/TokenTable';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
-import { MobileSearchBar } from '@/components/trading/FilterPanel';
+import { TokenTableSkeleton } from '@/components/ui/loading-states';
+
+// Lazy load heavy components to reduce initial bundle size
+const TokenTable = lazy(() => import('@/components/trading/TokenTable').then(module => ({
+  default: module.TokenTable
+})));
+
+const MobileSearchBar = lazy(() => import('@/components/trading/FilterPanel').then(module => ({
+  default: module.MobileSearchBar
+})));
 
 export default function Home() {
   return (
@@ -14,12 +23,16 @@ export default function Home() {
           
           {/* Main Content Area */}
           <div className="w-full mt-4">
-            {/* Mobile Search Bar */}
-            <MobileSearchBar />
+            {/* Mobile Search Bar - Lazy loaded */}
+            <Suspense fallback={<div className="h-12 bg-backgroundSecondary rounded-lg animate-pulse mb-4 lg:hidden" />}>
+              <MobileSearchBar />
+            </Suspense>
             
-            {/* Token Table - Now connected to real API with Redux and React Query */}
+            {/* Token Table - Lazy loaded with proper fallback */}
             <div className="bg-backgroundSecondary rounded-lg overflow-hidden">
-              <TokenTable />
+              <Suspense fallback={<TokenTableSkeleton rows={10} />}>
+                <TokenTable />
+              </Suspense>
             </div>
           </div>
         </div>

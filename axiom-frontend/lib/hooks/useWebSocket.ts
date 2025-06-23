@@ -1,8 +1,10 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
-import { io, Socket } from 'socket.io-client';
 import { useAppDispatch, useAppSelector } from '@/lib/store';
 import { updateTokenPrice, addTokens } from '@/lib/store/slices/tokensSlice';
 import { WSMessage, WSPriceUpdate, WSTokenUpdate, WSNewToken } from '@/lib/types';
+
+// Lazy load socket.io to reduce initial bundle size
+const loadSocketIO = () => import('socket.io-client').then(module => module.io);
 
 interface UseWebSocketOptions {
   enabled?: boolean;
@@ -33,9 +35,10 @@ export function useWebSocket(options: UseWebSocketOptions = {}): WebSocketHookRe
   const dispatch = useAppDispatch();
   const isRealTimeEnabled = useAppSelector(state => state.tokens.isRealTimeEnabled);
   
-  const socketRef = useRef<Socket | null>(null);
+  const socketRef = useRef<any | null>(null);
   const reconnectCountRef = useRef(0);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const ioRef = useRef<any | null>(null);
   
   const [isConnected, setIsConnected] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -95,10 +98,16 @@ export function useWebSocket(options: UseWebSocketOptions = {}): WebSocketHookRe
   /**
    * Connect to WebSocket server
    */
-  const connect = useCallback(() => {
+  const connect = useCallback(async () => {
     if (socketRef.current?.connected || !enabled) return;
 
     try {
+      // Lazy load socket.io
+      if (!ioRef.current) {
+        ioRef.current = await loadSocketIO();
+      }
+      
+      const io = ioRef.current;
       const socket = io(WS_URL, {
         transports: ['websocket', 'polling'],
         timeout: 10000,
@@ -119,7 +128,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): WebSocketHookRe
         console.log('📡 Subscribed to token updates');
       });
 
-      socket.on('disconnect', (reason) => {
+      socket.on('disconnect', (reason: string) => {
         console.log('🔌 WebSocket disconnected:', reason);
         setIsConnected(false);
         
@@ -135,7 +144,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): WebSocketHookRe
         }
       });
 
-      socket.on('connect_error', (error) => {
+      socket.on('connect_error', (error: any) => {
         console.error('❌ WebSocket connection error:', error);
         setConnectionError(error.message);
         setIsConnected(false);
@@ -146,7 +155,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): WebSocketHookRe
       });
 
       // Token data event handlers - Backend format
-      socket.on('price_update', (backendMessage) => {
+      socket.on('price_update', (backendMessage: any) => {
         console.log('📈 Received price updates:', backendMessage);
         if (backendMessage.data?.updates && Array.isArray(backendMessage.data.updates)) {
           backendMessage.data.updates.forEach((update: any) => {
@@ -200,40 +209,69 @@ export function useWebSocket(options: UseWebSocketOptions = {}): WebSocketHookRe
    * Schedule reconnection attempt
    */
   const scheduleReconnect = useCallback(() => {
-    if (reconnectTimeoutRef.current) return;
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+    }
     
     reconnectCountRef.current += 1;
     setReconnectCount(reconnectCountRef.current);
     
-    const delay = reconnectDelay * Math.pow(2, reconnectCountRef.current - 1); // Exponential backoff
+    const delay = Math.min(reconnectDelay * Math.pow(2, reconnectCountRef.current - 1), 30000);
     
     console.log(`🔄 Scheduling reconnect attempt ${reconnectCountRef.current}/${reconnectAttempts} in ${delay}ms`);
     
     reconnectTimeoutRef.current = setTimeout(() => {
-      reconnectTimeoutRef.current = null;
-      disconnect();
       connect();
     }, delay);
-  }, [reconnectDelay, reconnectAttempts, connect, disconnect]);
+  }, [reconnectDelay, reconnectAttempts, connect]);
 
-  /**
-   * Effect to handle connection lifecycle
-   */
+  // Auto-connect when enabled and page is visible
   useEffect(() => {
-    if (enabled && isRealTimeEnabled) {
-      connect();
+    if (enabled && isRealTimeEnabled && typeof window !== 'undefined') {
+      // Only connect if page is visible to improve bfcache compatibility
+      const isVisible = !document.hidden;
+      
+      if (isVisible) {
+        // Delay initial connection to not block initial render
+        const timeout = setTimeout(() => {
+          connect();
+        }, 1000); // Increased delay for better performance
+        
+        return () => {
+          clearTimeout(timeout);
+          disconnect();
+        };
+      }
     } else {
       disconnect();
     }
+  }, [enabled, isRealTimeEnabled, connect, disconnect]);
 
+  // Handle page visibility changes for bfcache
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        // Page is hidden, disconnect WebSocket to improve bfcache
+        disconnect();
+      } else if (enabled && isRealTimeEnabled) {
+        // Page is visible, reconnect if needed
+        const timeout = setTimeout(() => {
+          connect();
+        }, 500);
+        return () => clearTimeout(timeout);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
     return () => {
-      disconnect();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [enabled, isRealTimeEnabled, connect, disconnect]);
 
-  /**
-   * Cleanup on unmount
-   */
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
       disconnect();
@@ -250,8 +288,13 @@ export function useWebSocket(options: UseWebSocketOptions = {}): WebSocketHookRe
 }
 
 /**
- * Main hook for real-time WebSocket updates
+ * Hook for real-time token updates
  */
 export function useRealTimeUpdates(options: UseWebSocketOptions = {}) {
-  return useWebSocket(options);
+  const isRealTimeEnabled = useAppSelector(state => state.tokens.isRealTimeEnabled);
+  
+  return useWebSocket({
+    enabled: isRealTimeEnabled,
+    ...options,
+  });
 } 
