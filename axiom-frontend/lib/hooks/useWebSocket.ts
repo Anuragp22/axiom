@@ -1,7 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { useAppDispatch, useAppSelector } from '@/lib/store';
-import { updateTokenPrice, addTokens } from '@/lib/store/slices/tokensSlice';
-import { WSMessage, WSPriceUpdate, WSTokenUpdate, WSNewToken } from '@/lib/types';
+import { updateTokenPrice, addTokens, setTokens } from '@/lib/store/slices/tokensSlice';
 
 // Lazy load socket.io to reduce initial bundle size
 const loadSocketIO = () => import('socket.io-client').then(module => module.io);
@@ -23,7 +22,7 @@ interface WebSocketHookReturn {
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:5000';
 
 /**
- * Custom hook for WebSocket connection with real-time token updates
+ * Simple WebSocket hook for real-time token updates
  */
 export function useWebSocket(options: UseWebSocketOptions = {}): WebSocketHookReturn {
   const {
@@ -43,57 +42,6 @@ export function useWebSocket(options: UseWebSocketOptions = {}): WebSocketHookRe
   const [isConnected, setIsConnected] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [reconnectCount, setReconnectCount] = useState(0);
-
-  /**
-   * Handle incoming WebSocket messages
-   */
-  const handleMessage = useCallback((message: WSMessage) => {
-    if (!isRealTimeEnabled) return;
-
-    try {
-      switch (message.type) {
-        case 'PRICE_UPDATE': {
-          const priceUpdate = message as WSPriceUpdate;
-          dispatch(updateTokenPrice({
-            tokenId: priceUpdate.tokenId,
-            price: priceUpdate.price,
-            change: priceUpdate.change,
-            volume: priceUpdate.volume,
-          }));
-          break;
-        }
-        
-        case 'TOKEN_UPDATE': {
-          const tokenUpdate = message as WSTokenUpdate;
-          // Update existing token with new data
-          if (tokenUpdate.token.id) {
-            dispatch(updateTokenPrice({
-              tokenId: tokenUpdate.token.id,
-              price: tokenUpdate.token.priceData?.current || 0,
-              change: tokenUpdate.token.priceData?.change24h || 0,
-              volume: tokenUpdate.token.volume24h,
-            }));
-          }
-          break;
-        }
-        
-        case 'NEW_TOKEN': {
-          const newToken = message as WSNewToken;
-          dispatch(addTokens([newToken.token]));
-          break;
-        }
-        
-        default: {
-          // TypeScript exhaustiveness check
-          const _exhaustiveCheck: never = message;
-          console.warn('Unknown WebSocket message type:', (_exhaustiveCheck as any).type);
-          break;
-        }
-      }
-    } catch (error) {
-      console.error('Error handling WebSocket message:', error);
-    }
-  }, [dispatch, isRealTimeEnabled]);
 
   /**
    * Connect to WebSocket server
@@ -134,11 +82,9 @@ export function useWebSocket(options: UseWebSocketOptions = {}): WebSocketHookRe
         
         // Auto-reconnect for certain disconnect reasons
         if (reason === 'io server disconnect') {
-          // Server initiated disconnect, don't auto-reconnect
           return;
         }
         
-        // Client initiated or network issues, attempt reconnect
         if (reconnectCountRef.current < reconnectAttempts) {
           scheduleReconnect();
         }
@@ -154,27 +100,209 @@ export function useWebSocket(options: UseWebSocketOptions = {}): WebSocketHookRe
         }
       });
 
-      // Token data event handlers - Backend format
-      socket.on('price_update', (backendMessage: any) => {
-        console.log('📈 Received price updates:', backendMessage);
-        if (backendMessage.data?.updates && Array.isArray(backendMessage.data.updates)) {
-          backendMessage.data.updates.forEach((update: any) => {
+      // Handle price updates - create tokens directly from WebSocket data
+      socket.on('price_update', (message: any) => {
+        console.log('📈 Raw WebSocket message:', message);
+        
+        if (message.data?.updates && Array.isArray(message.data.updates)) {
+          const tokensFromWS = message.data.updates.map((update: any) => ({
+            id: update.pairAddress, // Use pair address as ID
+            name: update.name || update.symbol,
+            symbol: update.symbol,
+            imageUrl: `https://ui-avatars.com/api/?name=${update.symbol}&size=64&background=4ECDC4&color=FFFFFF&bold=true&format=png`,
+            pairInfo: {
+              baseToken: {
+                id: update.token_address,
+                symbol: update.symbol,
+                name: update.name || update.symbol,
+                image: `https://ui-avatars.com/api/?name=${update.symbol}&size=64&background=4ECDC4&color=FFFFFF&bold=true&format=png`,
+                chainId: 101,
+                address: update.token_address,
+                decimals: 9,
+              },
+              quoteToken: {
+                id: 'So11111111111111111111111111111111111111112',
+                symbol: 'SOL',
+                name: 'Solana',
+                image: '/images/solana.png',
+                chainId: 101,
+                address: 'So11111111111111111111111111111111111111112',
+                decimals: 9,
+              },
+              pairAddress: update.pairAddress,
+              dexId: 'dexscreener',
+              url: `https://dexscreener.com/solana/${update.pairAddress}`,
+            },
+            priceData: {
+              current: update.new_price || 0,
+              change24h: update.price_change_24h || 0,
+              change1h: update.price_change_percent || 0,
+              change5m: 0,
+              high24h: 0,
+              low24h: 0,
+            },
+            volumeData: {
+              h24: update.new_volume_h24 || 0,
+              h6: 0,
+              h1: update.new_volume_h1 || 0,
+              m5: update.new_volume_m5 || 0,
+            },
+            transactionData: {
+              buys24h: update.new_txns_h1_buys || 0,
+              sells24h: update.new_txns_h1_sells || 0,
+              total24h: (update.new_txns_h1_buys || 0) + (update.new_txns_h1_sells || 0),
+              makers: 0,
+              swaps: (update.new_txns_h1_buys || 0) + (update.new_txns_h1_sells || 0),
+            },
+            liquidityData: {
+              usd: update.new_liquidity || 0,
+              base: 0,
+              quote: 0,
+            },
+            marketCap: update.new_marketCap || 0,
+            liquidity: update.new_liquidity || 0,
+            volume24h: update.new_volume_h24 || 0,
+            transactions24h: (update.new_txns_h1_buys || 0) + (update.new_txns_h1_sells || 0),
+            buys24h: update.new_txns_h1_buys || 0,
+            sells24h: update.new_txns_h1_sells || 0,
+            priceChange24h: update.price_change_24h || 0,
+            fdv: update.new_marketCap || 0,
+            audit: {
+              honeypot: false,
+              isVerified: false,
+              isScam: false,
+              rugRisk: 'low' as const,
+              liquidityLocked: false,
+              mintDisabled: false,
+              riskScore: 10,
+              burnPercentage: 0,
+              isPaid: false,
+            },
+            socialLinks: {
+              website: `https://${update.symbol.toLowerCase()}.com`,
+              twitter: `https://twitter.com/${update.symbol.toLowerCase()}`,
+              telegram: `https://t.me/${update.symbol.toLowerCase()}`,
+            },
+            age: '1h',
+            communityUrl: `https://t.me/${update.symbol.toLowerCase()}`,
+            isPumpFun: false,
+            isGraduated: true,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          }));
+
+          console.log('🚀 Created tokens from WebSocket:', tokensFromWS.length);
+          
+          // Replace all tokens with WebSocket data
+          dispatch(setTokens(tokensFromWS));
+          
+          // Also dispatch individual price updates for animations
+          tokensFromWS.forEach((token: any) => {
             dispatch(updateTokenPrice({
-              tokenId: update.token_address,
-              price: update.new_price,
-              change: update.price_change_percent,
-              volume: update.new_volume,
-              liquidity: update.new_liquidity,
+              tokenId: token.id,
+              price: token.priceData.current,
+              change: token.priceData.change24h,
+              volume: token.volume24h,
+              liquidity: token.liquidity,
             }));
           });
         }
       });
-      
-      socket.on('token_update', handleMessage);
-      socket.on('new_token', handleMessage);
-      
-      // Generic message handler
-      socket.on('message', handleMessage);
+
+      // Handle new tokens
+      socket.on('new_token', (message: any) => {
+        console.log('🆕 New token received:', message);
+        if (message.data?.token) {
+          const token = message.data.token;
+          const newToken = {
+            id: token.pairAddress || token.id,
+            name: token.name || token.symbol,
+            symbol: token.symbol,
+            imageUrl: `https://ui-avatars.com/api/?name=${token.symbol}&size=64&background=96CEB4&color=FFFFFF&bold=true&format=png`,
+            pairInfo: {
+              baseToken: {
+                id: token.id,
+                symbol: token.symbol,
+                name: token.name || token.symbol,
+                image: `https://ui-avatars.com/api/?name=${token.symbol}&size=64&background=96CEB4&color=FFFFFF&bold=true&format=png`,
+                chainId: 101,
+                address: token.id,
+                decimals: 9,
+              },
+              quoteToken: {
+                id: 'So11111111111111111111111111111111111111112',
+                symbol: 'SOL',
+                name: 'Solana',
+                image: '/images/solana.png',
+                chainId: 101,
+                address: 'So11111111111111111111111111111111111111112',
+                decimals: 9,
+              },
+              pairAddress: token.pairAddress || token.id,
+              dexId: 'dexscreener',
+              url: `https://dexscreener.com/solana/${token.pairAddress || token.id}`,
+            },
+            priceData: {
+              current: token.priceData?.current || 0,
+              change24h: token.priceData?.change24h || 0,
+              change1h: token.priceData?.change1h || 0,
+              change5m: 0,
+              high24h: 0,
+              low24h: 0,
+            },
+            volumeData: {
+              h24: token.volume24h || 0,
+              h6: 0,
+              h1: 0,
+              m5: 0,
+            },
+            transactionData: {
+              buys24h: 0,
+              sells24h: 0,
+              total24h: 0,
+              makers: 0,
+              swaps: 0,
+            },
+            liquidityData: {
+              usd: token.liquidity || 0,
+              base: 0,
+              quote: 0,
+            },
+            marketCap: token.marketCap || 0,
+            liquidity: token.liquidity || 0,
+            volume24h: token.volume24h || 0,
+            transactions24h: 0,
+            buys24h: 0,
+            sells24h: 0,
+            priceChange24h: token.priceData?.change24h || 0,
+            fdv: token.marketCap || 0,
+            audit: {
+              honeypot: false,
+              isVerified: false,
+              isScam: false,
+              rugRisk: 'low' as const,
+              liquidityLocked: false,
+              mintDisabled: false,
+              riskScore: 10,
+              burnPercentage: 0,
+              isPaid: false,
+            },
+            socialLinks: {
+              website: `https://${token.symbol.toLowerCase()}.com`,
+              twitter: `https://twitter.com/${token.symbol.toLowerCase()}`,
+              telegram: `https://t.me/${token.symbol.toLowerCase()}`,
+            },
+            age: '1h',
+            communityUrl: `https://t.me/${token.symbol.toLowerCase()}`,
+            isPumpFun: false,
+            isGraduated: true,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+
+          dispatch(addTokens([newToken]));
+        }
+      });
 
       socketRef.current = socket;
       socket.connect();
@@ -183,7 +311,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): WebSocketHookRe
       console.error('❌ Failed to create WebSocket connection:', error);
       setConnectionError('Failed to create WebSocket connection');
     }
-  }, [enabled, reconnectAttempts, handleMessage]);
+  }, [enabled, reconnectAttempts, dispatch]);
 
   /**
    * Disconnect from WebSocket server
@@ -225,50 +353,20 @@ export function useWebSocket(options: UseWebSocketOptions = {}): WebSocketHookRe
     }, delay);
   }, [reconnectDelay, reconnectAttempts, connect]);
 
-  // Auto-connect when enabled and page is visible
+  // Auto-connect when enabled
   useEffect(() => {
     if (enabled && isRealTimeEnabled && typeof window !== 'undefined') {
-      // Only connect if page is visible to improve bfcache compatibility
-      const isVisible = !document.hidden;
+      const timeout = setTimeout(() => {
+        connect();
+      }, 1000);
       
-      if (isVisible) {
-        // Delay initial connection to not block initial render
-        const timeout = setTimeout(() => {
-          connect();
-        }, 1000); // Increased delay for better performance
-        
-        return () => {
-          clearTimeout(timeout);
-          disconnect();
-        };
-      }
+      return () => {
+        clearTimeout(timeout);
+        disconnect();
+      };
     } else {
       disconnect();
     }
-  }, [enabled, isRealTimeEnabled, connect, disconnect]);
-
-  // Handle page visibility changes for bfcache
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-
-    const handleVisibilityChange = () => {
-      if (document.hidden) {
-        // Page is hidden, disconnect WebSocket to improve bfcache
-        disconnect();
-      } else if (enabled && isRealTimeEnabled) {
-        // Page is visible, reconnect if needed
-        const timeout = setTimeout(() => {
-          connect();
-        }, 500);
-        return () => clearTimeout(timeout);
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
   }, [enabled, isRealTimeEnabled, connect, disconnect]);
 
   // Cleanup on unmount

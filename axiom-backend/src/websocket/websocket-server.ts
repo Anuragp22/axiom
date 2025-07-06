@@ -1,17 +1,65 @@
 import { Server as SocketIOServer } from 'socket.io';
 import { Server as HttpServer } from 'http';
-import { TokenAggregationService } from '@/services/token-aggregation.service';
 import { WebSocketMessage, Token } from '@/types/token';
+import { RedisCacheService } from '@/services/redis-cache.service';
 import config from '@/config';
 import logger from '@/utils/logger';
-import * as cron from 'node-cron';
+import axios from 'axios';
+
+interface DexScreenerPair {
+  pairAddress: string;
+  baseToken: {
+    address: string;
+    name: string;
+    symbol: string;
+  };
+  quoteToken: {
+    address: string;
+    name: string;
+    symbol: string;
+  };
+  priceUsd: string;
+  volume: {
+    h1: number;
+    h24: number;
+    m5: number;
+  };
+  txns: {
+    m5: {
+      buys: number;
+      sells: number;
+    };
+    h1: {
+      buys: number;
+      sells: number;
+    };
+  };
+  liquidity: {
+    usd: number;
+    base: number;
+    quote: number;
+  };
+  fdv: number;
+  marketCap: number;
+  priceChange: {
+    h1: number;
+    h24: number;
+  };
+}
+
+interface DexScreenerResponse {
+  pairs: DexScreenerPair[];
+}
 
 export class WebSocketServer {
   private io: SocketIOServer;
-  private tokenService: TokenAggregationService;
+  private redisCache: RedisCacheService;
   private connectedClients: Set<string> = new Set();
-  private priceUpdateInterval: NodeJS.Timeout | null = null;
-  private lastTokenData: Token[] = [];
+  private pollingInterval: NodeJS.Timeout | null = null;
+  
+  // Dynamic token discovery - no hardcoded tokens
+  private trackedTokens: string[] = [];
+  private lastTokenDiscovery: number = 0;
 
   constructor(httpServer: HttpServer) {
     this.io = new SocketIOServer(httpServer, {
@@ -24,9 +72,9 @@ export class WebSocketServer {
       pingTimeout: config.websocket.pingTimeout,
     });
 
-    this.tokenService = new TokenAggregationService();
+    this.redisCache = new RedisCacheService();
     this.setupEventHandlers();
-    this.startPeriodicUpdates();
+    this.startLivePolling();
   }
 
   private setupEventHandlers(): void {
@@ -39,10 +87,10 @@ export class WebSocketServer {
         totalClients: this.connectedClients.size 
       });
 
-      // Send initial data to the client
+      // Send initial data
       this.sendInitialData(socket);
 
-      // Handle subscription to specific tokens
+      // Handle subscription to token updates
       socket.on('subscribe_tokens', (tokenAddresses: string[]) => {
         if (Array.isArray(tokenAddresses)) {
           socket.join('token_updates');
@@ -59,39 +107,14 @@ export class WebSocketServer {
         logger.debug('Client unsubscribed from token updates', { clientId });
       });
 
-      // Handle client requests for specific token data
-      socket.on('get_token', async (tokenAddress: string, callback) => {
-        try {
-          // This would typically fetch specific token data
-          // For now, find it in our cached data
-          const token = this.lastTokenData.find(t => t.token_address === tokenAddress);
-          
-          if (callback && typeof callback === 'function') {
-            callback({
-              success: true,
-              data: token || null,
-            });
-          }
-        } catch (error) {
-          logger.error('Error handling get_token request', { clientId, tokenAddress, error });
-          
-          if (callback && typeof callback === 'function') {
-            callback({
-              success: false,
-              error: 'Failed to fetch token data',
-            });
-          }
-        }
-      });
-
-      // Handle ping/pong for connection health
+      // Handle ping/pong
       socket.on('ping', (callback) => {
         if (callback && typeof callback === 'function') {
           callback('pong');
         }
       });
 
-      // Handle client disconnect
+      // Handle disconnect
       socket.on('disconnect', (reason) => {
         this.connectedClients.delete(clientId);
         logger.info('Client disconnected from WebSocket', { 
@@ -100,37 +123,42 @@ export class WebSocketServer {
           totalClients: this.connectedClients.size 
         });
       });
-
-      // Handle connection errors
-      socket.on('error', (error) => {
-        logger.error('WebSocket client error', { clientId, error });
-      });
-    });
-
-    // Handle server-level errors
-    this.io.on('error', (error) => {
-      logger.error('WebSocket server error', { error });
     });
   }
 
   private async sendInitialData(socket: any): Promise<void> {
     try {
-      // Send recent trending tokens as initial data
-      const trendingTokens = await this.tokenService.getTrendingTokens(20);
+      // Get current token data
+      const tokens = await this.fetchAllTokenPairs();
       
-      const message: WebSocketMessage = {
-        type: 'new_token',
-        data: {
-          tokens: trendingTokens,
-          message: 'Initial token data',
-        },
-        timestamp: Date.now(),
-      };
-
-      socket.emit('initial_data', message);
+      // Send each token as individual new_token events
+      tokens.slice(0, 20).forEach(pair => {
+        const message: WebSocketMessage = {
+          type: 'new_token',
+          data: {
+            token: {
+              id: pair.baseToken?.address,
+              symbol: pair.baseToken?.symbol,
+              name: pair.baseToken?.name,
+              priceData: {
+                current: parseFloat(pair.priceUsd),
+                change24h: pair.priceChange?.h24 || 0,
+                change1h: pair.priceChange?.h1 || 0,
+              },
+              volume24h: pair.volume?.h24 || 0,
+              marketCap: pair.fdv,
+              liquidity: pair.liquidity?.usd || 0,
+              pairAddress: pair.pairAddress,
+            },
+            message: 'Initial token data from DexScreener',
+          },
+          timestamp: Date.now(),
+        };
+        socket.emit('new_token', message);
+      });
       logger.debug('Sent initial data to client', { 
         clientId: socket.id,
-        tokenCount: trendingTokens.length 
+        tokenCount: tokens.length 
       });
     } catch (error) {
       logger.error('Failed to send initial data', { 
@@ -140,173 +168,252 @@ export class WebSocketServer {
     }
   }
 
-  private startPeriodicUpdates(): void {
-    // Real-time price updates every 30 seconds (reduced frequency for real API calls)
-    this.priceUpdateInterval = setInterval(() => {
-      this.broadcastPriceUpdates();
-    }, 5000); // 5 seconds instead of 30 seconds
+  private startLivePolling(): void {
+    // Start polling every 5 seconds to respect DexScreener rate limits (60/min = 1/sec max)
+    this.pollingInterval = setInterval(() => {
+      this.pollAndEmitChanges();
+    }, 5000);
 
-    // Schedule cache refresh every 30 seconds using cron
-    cron.schedule('*/30 * * * * *', async () => {
-      try {
-        await this.refreshTokenData();
-      } catch (error) {
-        logger.error('Failed to refresh token data', { error });
-      }
-    });
-
-    logger.info('Started periodic WebSocket updates with real API data');
+    logger.info('Started live DexScreener polling every 5 seconds (rate limit compliant)');
   }
 
-  private async broadcastPriceUpdates(): Promise<void> {
+  private async pollAndEmitChanges(): Promise<void> {
     try {
       if (this.connectedClients.size === 0) {
-        return; // No clients connected, skip update
+        return; // No clients connected, skip polling
       }
 
-      // Get fresh token data from APIs instead of simulating
-      try {
-        const currentTokens = await this.tokenService.getTrendingTokens(50);
-        
-        if (currentTokens.length > 0) {
-          // Detect real price changes if we have previous data
-          if (this.lastTokenData.length > 0) {
-            const priceChanges = this.detectPriceChanges(this.lastTokenData, currentTokens);
-            
-            if (priceChanges.length > 0) {
-              const message: WebSocketMessage = {
-                type: 'price_update',
-                data: {
-                  updates: priceChanges.map(change => ({
-                    token_address: change.token_address,
-                    old_price: change.old_price,
-                    new_price: change.new_price,
-                    price_change_percent: change.change_percent,
-                    // Real volume and liquidity data from API
-                    old_volume: this.lastTokenData.find(t => t.token_address === change.token_address)?.volume_usd || 0,
-                    new_volume: currentTokens.find(t => t.token_address === change.token_address)?.volume_usd || 0,
-                    volume_change_percent: 0, // Calculate real change
-                    old_liquidity: this.lastTokenData.find(t => t.token_address === change.token_address)?.liquidity_usd || 0,
-                    new_liquidity: currentTokens.find(t => t.token_address === change.token_address)?.liquidity_usd || 0,
-                    liquidity_change_percent: 0, // Calculate real change
-                  })),
-                  timestamp: Date.now(),
-                },
-                timestamp: Date.now(),
-              };
+      logger.debug('Polling DexScreener for token changes...');
+      
+      // Fetch all token pairs from all tracked tokens
+      const allCurrentPairs = await this.fetchAllTokenPairs();
+      
+      const changedPairs: DexScreenerPair[] = [];
 
-              // Calculate real volume and liquidity changes
-              message.data.updates.forEach((update: {
-                token_address: string;
-                old_price: number;
-                new_price: number;
-                price_change_percent: number;
-                old_volume: number;
-                new_volume: number;
-                volume_change_percent: number;
-                old_liquidity: number;
-                new_liquidity: number;
-                liquidity_change_percent: number;
-              }) => {
-                if (update.old_volume > 0) {
-                  update.volume_change_percent = ((update.new_volume - update.old_volume) / update.old_volume) * 100;
-                }
-                if (update.old_liquidity > 0) {
-                  update.liquidity_change_percent = ((update.new_liquidity - update.old_liquidity) / update.old_liquidity) * 100;
-                }
-              });
+             // Check each pair for changes and store cached data
+       const changedPairsWithCache: Array<{ pair: DexScreenerPair, cached: DexScreenerPair | null }> = [];
+       
+       for (const pair of allCurrentPairs) {
+         const cacheKey = `pair:${pair.pairAddress}`;
+         const cached = await this.redisCache.get<DexScreenerPair>(cacheKey);
 
-              // Broadcast to all clients subscribed to token updates
-              this.io.to('token_updates').emit('price_update', message);
-              
-              logger.debug('Broadcasted real price updates', { 
-                updateCount: priceChanges.length,
-                clientCount: this.connectedClients.size 
-              });
-            }
-          }
-          
-          // Update our cached data with fresh API data
-          this.lastTokenData = currentTokens;
-        }
-      } catch (apiError) {
-        logger.warn('Failed to fetch fresh token data for updates, skipping broadcast', { error: apiError });
-      }
+         if (!cached || this.hasChanged(cached, pair)) {
+           changedPairsWithCache.push({ pair, cached });
+           
+           // Update cache with new data
+           await this.redisCache.set(cacheKey, pair, 30); // 30 second expiry
+           
+           logger.info(`[CHANGED] ${pair.baseToken.symbol}/${pair.quoteToken.symbol} → $${pair.priceUsd}`, {
+             pairAddress: pair.pairAddress,
+             price: pair.priceUsd,
+             volume_h1: pair.volume?.h1,
+             liquidity: pair.liquidity?.usd
+           });
+         }
+       }
+
+             // Broadcast changes to all connected clients
+       if (changedPairsWithCache.length > 0) {
+         const updateMessage: WebSocketMessage = {
+           type: 'price_update',
+           data: {
+             updates: changedPairsWithCache.map(({ pair, cached }) => {
+               return {
+                 token_address: pair.baseToken?.address,
+                 pairAddress: pair.pairAddress,
+                 symbol: pair.baseToken?.symbol,
+                 name: pair.baseToken?.name,
+                 
+                 // PRICE DATA
+                 old_price: cached ? parseFloat(cached.priceUsd) : 0,
+                 new_price: parseFloat(pair.priceUsd),
+                 price_change_percent: pair.priceChange?.h1 || 0,
+                 price_change_24h: pair.priceChange?.h24 || 0,
+                 
+                 // MARKET CAP DATA
+                 old_marketCap: cached ? cached.fdv : 0,
+                 new_marketCap: pair.fdv,
+                 marketCap_change_percent: cached && cached.fdv ? ((pair.fdv - cached.fdv) / cached.fdv) * 100 : 0,
+                 
+                 // LIQUIDITY DATA
+                 old_liquidity: cached ? cached.liquidity?.usd || 0 : 0,
+                 new_liquidity: pair.liquidity?.usd || 0,
+                 liquidity_change_percent: cached && cached.liquidity?.usd ? ((pair.liquidity?.usd || 0) - cached.liquidity.usd) / cached.liquidity.usd * 100 : 0,
+                 
+                 // VOLUME DATA
+                 old_volume_h1: cached ? cached.volume?.h1 || 0 : 0,
+                 new_volume_h1: pair.volume?.h1 || 0,
+                 volume_h1_change_percent: cached && cached.volume?.h1 ? ((pair.volume?.h1 || 0) - cached.volume.h1) / cached.volume.h1 * 100 : 0,
+                 
+                 old_volume_h24: cached ? cached.volume?.h24 || 0 : 0,
+                 new_volume_h24: pair.volume?.h24 || 0,
+                 volume_h24_change_percent: cached && cached.volume?.h24 ? ((pair.volume?.h24 || 0) - cached.volume.h24) / cached.volume.h24 * 100 : 0,
+                 
+                 old_volume_m5: cached ? cached.volume?.m5 || 0 : 0,
+                 new_volume_m5: pair.volume?.m5 || 0,
+                 volume_m5_change_percent: cached && cached.volume?.m5 ? ((pair.volume?.m5 || 0) - cached.volume.m5) / cached.volume.m5 * 100 : 0,
+                 
+                 // TRANSACTION DATA
+                 old_txns_m5_buys: cached ? cached.txns?.m5?.buys || 0 : 0,
+                 new_txns_m5_buys: pair.txns?.m5?.buys || 0,
+                 txns_m5_buys_change: (pair.txns?.m5?.buys || 0) - (cached ? cached.txns?.m5?.buys || 0 : 0),
+                 
+                 old_txns_m5_sells: cached ? cached.txns?.m5?.sells || 0 : 0,
+                 new_txns_m5_sells: pair.txns?.m5?.sells || 0,
+                 txns_m5_sells_change: (pair.txns?.m5?.sells || 0) - (cached ? cached.txns?.m5?.sells || 0 : 0),
+                 
+                 old_txns_h1_buys: cached ? cached.txns?.h1?.buys || 0 : 0,
+                 new_txns_h1_buys: pair.txns?.h1?.buys || 0,
+                 txns_h1_buys_change: (pair.txns?.h1?.buys || 0) - (cached ? cached.txns?.h1?.buys || 0 : 0),
+                 
+                 old_txns_h1_sells: cached ? cached.txns?.h1?.sells || 0 : 0,
+                 new_txns_h1_sells: pair.txns?.h1?.sells || 0,
+                 txns_h1_sells_change: (pair.txns?.h1?.sells || 0) - (cached ? cached.txns?.h1?.sells || 0 : 0),
+                 
+                 // COMPLETE DATA FOR REFERENCE
+                 complete_data: {
+                   marketCap: pair.fdv,
+                   liquidity: pair.liquidity?.usd || 0,
+                   volume: {
+                     h1: pair.volume?.h1 || 0,
+                     h24: pair.volume?.h24 || 0,
+                     m5: pair.volume?.m5 || 0,
+                   },
+                   txns: {
+                     m5: pair.txns?.m5 || { buys: 0, sells: 0 },
+                     h1: pair.txns?.h1 || { buys: 0, sells: 0 },
+                   },
+                   priceChange: pair.priceChange || { h1: 0, h24: 0 },
+                 }
+               };
+             }),
+             timestamp: Date.now(),
+           },
+           timestamp: Date.now(),
+         };
+
+         // Broadcast to all connected clients
+         this.io.emit('price_update', updateMessage);
+         
+         logger.info('Broadcasted token updates to clients', {
+           changedPairs: changedPairsWithCache.length,
+           connectedClients: this.connectedClients.size,
+         });
+       }
     } catch (error) {
-      logger.error('Failed to broadcast price updates', { error });
+      logger.error('Error during polling and emit', { error });
     }
   }
 
-  private detectPriceChanges(oldTokens: Token[], newTokens: Token[]): Array<{
-    token_address: string;
-    old_price: number;
-    new_price: number;
-    change_percent: number;
-  }> {
-    const changes: Array<{
-      token_address: string;
-      old_price: number;
-      new_price: number;
-      change_percent: number;
-    }> = [];
+  private async fetchAllTokenPairs(): Promise<DexScreenerPair[]> {
+    // Discover trending tokens dynamically every 2 minutes to save API calls
+    if (Date.now() - this.lastTokenDiscovery > 120000 || this.trackedTokens.length === 0) {
+      await this.discoverTrendingTokens();
+    }
 
-    const oldTokenMap = new Map(oldTokens.map(t => [t.token_address, t]));
-
-    newTokens.forEach(newToken => {
-      const oldToken = oldTokenMap.get(newToken.token_address);
-      
-      if (oldToken && oldToken.price_usd && newToken.price_usd) {
-        const oldPrice = oldToken.price_usd;
-        const newPrice = newToken.price_usd;
-        const changePercent = ((newPrice - oldPrice) / oldPrice) * 100;
-
-        // Only broadcast significant changes (>0.1%)
-        if (Math.abs(changePercent) > 0.1) {
-          changes.push({
-            token_address: newToken.token_address,
-            old_price: oldPrice,
-            new_price: newPrice,
-            change_percent: changePercent,
-          });
-        }
-      }
-    });
-
-    return changes;
-  }
-
-  private async refreshTokenData(): Promise<void> {
+    const allPairs: DexScreenerPair[] = [];
+    
+    // Use batch requests to respect rate limits - DexScreener allows comma-separated addresses
     try {
-      // Clear cache to force fresh data fetch
-      this.tokenService.clearCache();
-      
-      // Broadcast new token discovery
-      const newTokens = await this.tokenService.getTrendingTokens(100);
-      
-      // Find tokens that weren't in our last data set (potential new listings)
-      const lastTokenAddresses = new Set(this.lastTokenData.map(t => t.token_address));
-      const potentialNewTokens = newTokens.filter(t => !lastTokenAddresses.has(t.token_address));
-
-      if (potentialNewTokens.length > 0) {
-        const message: WebSocketMessage = {
-          type: 'new_token',
-          data: {
-            tokens: potentialNewTokens,
-            message: `${potentialNewTokens.length} new tokens discovered`,
-          },
-          timestamp: Date.now(),
-        };
-
-        this.io.emit('new_tokens', message);
+      if (this.trackedTokens.length > 0) {
+        // Batch up to 30 tokens per request (DexScreener limit)
+        const batchSize = Math.min(this.trackedTokens.length, 30);
+        const tokenBatch = this.trackedTokens.slice(0, batchSize).join(',');
         
-        logger.info('Broadcasted new token discoveries', { 
-          newTokenCount: potentialNewTokens.length,
-          clientCount: this.connectedClients.size 
-        });
+        const response = await axios.get<DexScreenerResponse>(
+          `https://api.dexscreener.com/latest/dex/tokens/${tokenBatch}`,
+          { timeout: 15000 }
+        );
+        
+        if (response.data?.pairs) {
+          allPairs.push(...response.data.pairs);
+          logger.debug(`Fetched ${response.data.pairs.length} pairs for ${batchSize} tokens`);
+        }
       }
-    } catch (error) {
-      logger.error('Failed to refresh token data', { error });
+    } catch (error: any) {
+      if (error.status === 429) {
+        logger.warn('Rate limited by DexScreener - backing off');
+        // Exponential backoff on rate limit
+        await new Promise(resolve => setTimeout(resolve, 5000));
+      } else {
+        logger.warn('Failed to fetch token pairs batch', { error: error.message });
+      }
     }
+
+    return allPairs;
+  }
+
+  private async discoverTrendingTokens(): Promise<void> {
+    try {
+      // Use fewer search terms to reduce API calls
+      const trendingTerms = ['solana', 'pump'];
+      const discoveredTokens = new Set<string>();
+      
+      // Add some stable tokens first
+      discoveredTokens.add('So11111111111111111111111111111111111111112'); // SOL
+      discoveredTokens.add('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'); // USDC
+      
+      for (const term of trendingTerms) {
+        try {
+          await new Promise(resolve => setTimeout(resolve, 1000)); // 1s delay between searches
+          
+          const response = await axios.get<DexScreenerResponse>(
+            `https://api.dexscreener.com/latest/dex/search?q=${term}`,
+            { timeout: 10000 }
+          );
+          
+          if (response.data?.pairs) {
+            response.data.pairs
+              .filter(pair => pair.volume?.h24 > 50000) // Higher threshold for better tokens
+              .slice(0, 5) // Top 5 from each search
+              .forEach(pair => {
+                if (pair.baseToken?.address) {
+                  discoveredTokens.add(pair.baseToken.address);
+                }
+              });
+          }
+        } catch (error: any) {
+          if (error.status === 429) {
+            logger.warn('Rate limited during token discovery - skipping remaining searches');
+            break; // Stop searching if rate limited
+          }
+          logger.warn(`Failed to search for trending term: ${term}`, { error: error.message });
+        }
+      }
+      
+      this.trackedTokens = Array.from(discoveredTokens).slice(0, 15); // Limit to 15 tokens for better rate limiting
+      this.lastTokenDiscovery = Date.now();
+      
+      logger.info('Discovered trending tokens dynamically', { 
+        tokenCount: this.trackedTokens.length,
+        tokens: this.trackedTokens.slice(0, 5) // Log first 5
+      });
+    } catch (error) {
+      logger.error('Failed to discover trending tokens', { error });
+      // Fallback to some known tokens
+      this.trackedTokens = [
+        'So11111111111111111111111111111111111111112',
+        'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+        'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
+      ];
+    }
+  }
+
+  private hasChanged(oldPair: DexScreenerPair, newPair: DexScreenerPair): boolean {
+    // Direct comparison like lo.ts - check meaningful changes
+    return (
+      oldPair?.priceUsd !== newPair.priceUsd ||
+      oldPair?.volume?.h1 !== newPair.volume?.h1 ||
+      oldPair?.volume?.h24 !== newPair.volume?.h24 ||
+      oldPair?.volume?.m5 !== newPair.volume?.m5 ||
+      oldPair?.txns?.m5?.buys !== newPair.txns?.m5?.buys ||
+      oldPair?.txns?.m5?.sells !== newPair.txns?.m5?.sells ||
+      oldPair?.txns?.h1?.buys !== newPair.txns?.h1?.buys ||
+      oldPair?.txns?.h1?.sells !== newPair.txns?.h1?.sells ||
+      oldPair?.liquidity?.usd !== newPair.liquidity?.usd ||
+      oldPair?.fdv !== newPair.fdv ||
+      oldPair?.marketCap !== newPair.marketCap
+    );
   }
 
   public broadcastMessage(message: WebSocketMessage): void {
@@ -334,9 +441,9 @@ export class WebSocketServer {
   }
 
   public stop(): void {
-    if (this.priceUpdateInterval) {
-      clearInterval(this.priceUpdateInterval);
-      this.priceUpdateInterval = null;
+    if (this.pollingInterval) {
+      clearInterval(this.pollingInterval);
+      this.pollingInterval = null;
     }
     
     this.io.close();

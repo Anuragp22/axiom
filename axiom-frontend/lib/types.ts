@@ -95,6 +95,28 @@ export interface Token {
   isGraduated: boolean;
   createdAt: string;
   updatedAt: string;
+  metrics?: {
+    // Real-time comprehensive metrics from WebSocket
+    marketCap?: number;
+    marketCapChange?: number;
+    liquidity?: number;
+    liquidityChange?: number;
+    volume24h?: number;
+    volume24hChange?: number;
+    volume1h?: number;
+    volume1hChange?: number;
+    volume5m?: number;
+    volume5mChange?: number;
+    txns5mBuys?: number;
+    txns5mBuysChange?: number;
+    txns5mSells?: number;
+    txns5mSellsChange?: number;
+    txns1hBuys?: number;
+    txns1hBuysChange?: number;
+    txns1hSells?: number;
+    txns1hSellsChange?: number;
+    lastUpdate?: number;
+  };
 }
 
 export interface TableFilters {

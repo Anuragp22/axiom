@@ -1,0 +1,247 @@
+name: Deploy Axiom to Azure
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  AZURE_WEBAPP_NAME: axiom-fya9ajasbwafg6ax
+  AZURE_WEBAPP_PACKAGE_PATH: '.'
+  NODE_VERSION: '18.x'
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 🚀 Checkout code
+      uses: actions/checkout@v4
+
+    - name: 🟢 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+
+    # Backend Build & Test
+    - name: 📦 Install Backend Dependencies
+      run: |
+        cd axiom-backend
+        npm ci --only=production
+
+    - name: 🧪 Run Backend Tests
+      run: |
+        cd axiom-backend
+        npm test
+      env:
+        NODE_ENV: test
+
+    - name: 🏗️ Build Backend
+      run: |
+        cd axiom-backend
+        npm run build
+
+    # Frontend Build & Test
+    - name: 📦 Install Frontend Dependencies
+      run: |
+        cd axiom-frontend
+        npm ci
+
+    - name: 🏗️ Build Frontend
+      run: |
+        cd axiom-frontend
+        npm run build
+      env:
+        NODE_ENV: production
+        NEXT_PUBLIC_API_BASE_URL: https://axiom-fya9ajasbwafg6ax.centralindia-01.azurewebsites.net
+        NEXT_PUBLIC_WS_URL: wss://axiom-fya9ajasbwafg6ax.centralindia-01.azurewebsites.net
+
+    # Create deployment package
+    - name: 📁 Prepare Deployment Package
+      run: |
+        mkdir -p deployment
+        
+        # Copy backend files
+        cp -r axiom-backend/dist deployment/
+        cp -r axiom-backend/node_modules deployment/
+        cp axiom-backend/package.json deployment/
+        cp axiom-backend/package-lock.json deployment/
+        
+        # Copy frontend build
+        cp -r axiom-frontend/.next deployment/
+        cp -r axiom-frontend/public deployment/
+        cp axiom-frontend/package.json deployment/frontend-package.json
+        cp axiom-frontend/next.config.mjs deployment/
+        
+        # Create startup script
+        cat > deployment/startup.sh << 'EOF'
+        #!/bin/bash
+        echo "Starting Axiom Application..."
+        
+        # Install dependencies if needed
+        if [ ! -d "node_modules" ]; then
+          echo "Installing dependencies..."
+          npm install --only=production
+        fi
+        
+        # Start backend server
+        echo "Starting backend server..."
+        node dist/server.js &
+        BACKEND_PID=$!
+        
+        # Wait for backend to start
+        sleep 10
+        
+        # Keep backend running
+        wait $BACKEND_PID
+        EOF
+        
+        chmod +x deployment/startup.sh
+
+    - name: 📤 Upload Deployment Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: axiom-deployment
+        path: deployment/
+
+  deploy-to-azure:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    environment:
+      name: 'Production'
+      url: https://axiom-fya9ajasbwafg6ax.centralindia-01.azurewebsites.net
+
+    steps:
+    - name: 📥 Download Deployment Artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: axiom-deployment
+        path: deployment/
+
+    - name: 🚀 Deploy to Azure App Service
+      uses: azure/webapps-deploy@v3
+      with:
+        app-name: ${{ env.AZURE_WEBAPP_NAME }}
+        slot-name: 'Production'
+        publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE }}
+        package: deployment/
+
+    - name: 🔧 Configure Azure App Settings
+      uses: azure/appservice-settings@v1
+      with:
+        app-name: ${{ env.AZURE_WEBAPP_NAME }}
+        app-settings-json: |
+          [
+            {
+              "name": "NODE_ENV",
+              "value": "production"
+            },
+            {
+              "name": "WEBSITE_NODE_DEFAULT_VERSION",
+              "value": "18.17.0"
+            },
+            {
+              "name": "SCM_DO_BUILD_DURING_DEPLOYMENT",
+              "value": "false"
+            },
+            {
+              "name": "WEBSITE_RUN_FROM_PACKAGE",
+              "value": "1"
+            },
+            {
+              "name": "PORT",
+              "value": "8080"
+            },
+            {
+              "name": "API_BASE_URL",
+              "value": "https://axiom-fya9ajasbwafg6ax.centralindia-01.azurewebsites.net"
+            },
+            {
+              "name": "REDIS_URL",
+              "value": "${{ secrets.REDIS_URL }}"
+            },
+            {
+              "name": "LOG_LEVEL",
+              "value": "info"
+            }
+          ]
+
+  deploy-staging:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop'
+    
+    environment:
+      name: 'Staging'
+      url: https://axiom-fya9ajasbwafg6ax-staging.centralindia-01.azurewebsites.net
+
+    steps:
+    - name: 📥 Download Deployment Artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: axiom-deployment
+        path: deployment/
+
+    - name: 🚀 Deploy to Azure App Service (Staging)
+      uses: azure/webapps-deploy@v3
+      with:
+        app-name: ${{ env.AZURE_WEBAPP_NAME }}
+        slot-name: 'staging'
+        publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_STAGING }}
+        package: deployment/
+
+  health-check:
+    needs: deploy-to-azure
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: 🏥 Health Check
+      run: |
+        echo "Waiting for deployment to stabilize..."
+        sleep 30
+        
+        # Check backend health
+        echo "Checking backend health..."
+        response=$(curl -s -o /dev/null -w "%{http_code}" https://axiom-fya9ajasbwafg6ax.centralindia-01.azurewebsites.net/api/v1/health)
+        
+        if [ $response == "200" ]; then
+          echo "✅ Backend health check passed"
+        else
+          echo "❌ Backend health check failed with status: $response"
+          exit 1
+        fi
+        
+        # Check if WebSocket is working
+        echo "Checking WebSocket endpoint..."
+        ws_response=$(curl -s -o /dev/null -w "%{http_code}" https://axiom-fya9ajasbwafg6ax.centralindia-01.azurewebsites.net/socket.io/)
+        
+        if [ $ws_response == "200" ] || [ $ws_response == "400" ]; then
+          echo "✅ WebSocket endpoint accessible"
+        else
+          echo "❌ WebSocket endpoint check failed with status: $ws_response"
+          exit 1
+        fi
+        
+        echo "🎉 All health checks passed!"
+
+    - name: 📊 Performance Test
+      run: |
+        echo "Running basic performance test..."
+        
+        # Test API response time
+        response_time=$(curl -s -w "%{time_total}" -o /dev/null https://axiom-fya9ajasbwafg6ax.centralindia-01.azurewebsites.net/api/v1/tokens/trending)
+        
+        echo "API response time: ${response_time}s"
+        
+        # Check if response time is reasonable (under 5 seconds)
+        if (( $(echo "$response_time < 5.0" | bc -l) )); then
+          echo "✅ Performance test passed"
+        else
+          echo "⚠️ Performance test warning: Response time > 5s"
+        fi 

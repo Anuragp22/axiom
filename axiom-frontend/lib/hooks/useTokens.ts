@@ -340,14 +340,14 @@ export function useTokensWithState() {
   }), [filters, searchQuery, quickFilter, timeframe]);
   
   // Choose data source based on active tab
-  const trendingQuery = useTrendingTokens(100, { enabled: activeTab === 'trending' });
-  const featuredQuery = useFeaturedTokens({ enabled: activeTab === 'pump-live' });
+  const trendingQuery = useTrendingTokens(100, { enabled: false });
+  const featuredQuery = useFeaturedTokens({ enabled: false });
   const regularQuery = useTokens(
     combinedFilters,
     reduxState.pagination.page,
     reduxState.pagination.pageSize,
     reduxState.pagination.cursor,
-    { enabled: activeTab === 'dex-screener' }
+    { enabled: false }
   );
 
   // Update Redux store when data changes

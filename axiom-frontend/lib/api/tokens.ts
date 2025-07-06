@@ -68,9 +68,9 @@ function transformToken(backendToken: BackendToken): Token {
         address: 'So11111111111111111111111111111111111111112',
         decimals: 9,
       },
-      pairAddress: backendToken.pair_address || '',
+      pairAddress: backendToken.pair_address || backendToken.token_address, // Fallback to token address if no pair address
       dexId: backendToken.dex_id || backendToken.protocol,
-      url: `https://dexscreener.com/solana/${backendToken.pair_address}`,
+      url: `https://dexscreener.com/solana/${backendToken.pair_address || backendToken.token_address}`,
     },
     priceData: {
       current: backendToken.price_usd || backendToken.price_sol,

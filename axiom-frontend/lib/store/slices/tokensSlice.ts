@@ -111,6 +111,44 @@ const tokensSlice = createSlice({
         }
       }
     },
+
+    updateTokenComprehensive: (state, action: PayloadAction<{
+      tokenId: string;
+      price: number;
+      change: number;
+      volume?: number;
+      liquidity?: number;
+      marketCap?: number;
+    }>) => {
+      const { tokenId, price, change, volume, liquidity, marketCap } = action.payload;
+      const now = Date.now();
+      
+      const tokenIndex = state.tokens.findIndex(t => t.id === tokenId);
+      
+      if (tokenIndex !== -1) {
+        state.tokens[tokenIndex].priceData.current = price;
+        state.tokens[tokenIndex].priceData.change24h = change;
+        
+        if (marketCap !== undefined) {
+          state.tokens[tokenIndex].marketCap = marketCap;
+        }
+        if (liquidity !== undefined) {
+          state.tokens[tokenIndex].liquidity = liquidity;
+        }
+        if (volume !== undefined) {
+          state.tokens[tokenIndex].volume24h = volume;
+        }
+        
+        state.priceUpdates[tokenId] = {
+          price,
+          change,
+          timestamp: now,
+          animate: true,
+        };
+        
+        state.lastUpdateTimestamps[tokenId] = now;
+      }
+    },
     
     toggleTokenSelection: (state, action: PayloadAction<string>) => {
       const tokenId = action.payload;
@@ -175,6 +213,7 @@ export const {
   addTokens,
   updateToken,
   updateTokenPrice,
+  updateTokenComprehensive,
   toggleTokenSelection,
   clearTokenSelection,
   toggleFavoriteToken,
