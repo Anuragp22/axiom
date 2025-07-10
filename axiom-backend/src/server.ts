@@ -5,8 +5,7 @@ import rateLimit from 'express-rate-limit';
 import { createServer } from 'http';
 import { WebSocketServer } from '@/websocket/websocket-server';
 import { errorHandler } from '@/middleware/error-handler';
-import tokenRoutes from '@/routes/tokens';
-import healthRoutes from '@/routes/health';
+// Removed unused route imports - only WebSocket is used
 import config from '@/config';
 import logger from '@/utils/logger';
 import { Request, Response, NextFunction } from 'express';
@@ -89,9 +88,7 @@ class AxiomServer {
   }
 
   private setupRoutes(): void {
-    // API routes
-    this.app.use('/api/tokens', tokenRoutes);
-    this.app.use('/api/health', healthRoutes);
+    // Only WebSocket is used - REST API routes removed
 
     // WebSocket stats endpoint
     this.app.get('/api/websocket/stats', (req, res) => {
@@ -118,11 +115,8 @@ class AxiomServer {
           version: '1.0.0',
           environment: config.server.nodeEnv,
           endpoints: {
-            tokens: '/api/tokens',
-            search: '/api/tokens/search',
-            trending: '/api/tokens/trending',
-            health: '/api/health',
             websocket: 'ws://localhost:' + config.server.port,
+            stats: '/api/websocket/stats',
           },
         },
         timestamp: Date.now(),
@@ -188,10 +182,8 @@ class AxiomServer {
 
       // Log available endpoints
       logger.info('Available endpoints', {
-        api: `http://localhost:${config.server.port}/api`,
-        health: `http://localhost:${config.server.port}/api/health`,
-        tokens: `http://localhost:${config.server.port}/api/tokens`,
         websocket: `ws://localhost:${config.server.port}`,
+        stats: `http://localhost:${config.server.port}/api/websocket/stats`,
       });
     });
   }
