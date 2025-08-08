@@ -116,7 +116,7 @@ function transformToken(backendToken: BackendToken): Token {
       isScam: false,
       rugRisk: 'low',
       liquidityLocked: false,
-      mintDisabled: undefined,
+      mintDisabled: false,
       riskScore: 0,
       burnPercentage: 0,
       isPaid: false,

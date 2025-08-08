@@ -317,10 +317,12 @@ class AxiomServer {
         pid: process.pid,
       });
 
+      const publicHttp = process.env.PUBLIC_HTTP_URL || (config.server.nodeEnv === 'production' ? '' : `http://localhost:${config.server.port}`);
+      const publicWs = process.env.PUBLIC_WS_URL || (config.server.nodeEnv === 'production' ? '' : `ws://localhost:${config.server.port}`);
       logger.info('Available endpoints', {
-        health: `http://localhost:${config.server.port}/api/health`,
-        tokens: `http://localhost:${config.server.port}/api/tokens`,
-        websocket: `ws://localhost:${config.server.port}`,
+        health: publicHttp ? `${publicHttp}/api/health` : 'set PUBLIC_HTTP_URL to log public endpoints',
+        tokens: publicHttp ? `${publicHttp}/api/tokens` : 'set PUBLIC_HTTP_URL to log public endpoints',
+        websocket: publicWs || 'set PUBLIC_WS_URL to log public WS endpoint',
       });
     });
   }

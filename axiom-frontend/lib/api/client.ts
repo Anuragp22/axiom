@@ -1,7 +1,16 @@
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
 
 // API Configuration
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+const resolveApiBaseUrl = (): string => {
+  const envUrl = process.env.NEXT_PUBLIC_API_URL;
+  if (process.env.NODE_ENV === 'development') {
+    return envUrl || 'http://localhost:5000';
+  }
+  if (envUrl) return envUrl;
+  if (typeof window !== 'undefined') return window.location.origin;
+  return 'http://localhost:5000';
+};
+const API_BASE_URL = resolveApiBaseUrl();
 const API_VERSION = '/api';
 
 // Optimized timeout for better performance

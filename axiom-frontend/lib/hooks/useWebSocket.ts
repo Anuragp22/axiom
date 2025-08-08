@@ -18,7 +18,18 @@ interface WebSocketHookReturn {
   connect: () => void;
 }
 
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:5000';
+const WS_URL = (() => {
+  const envUrl = process.env.NEXT_PUBLIC_WS_URL;
+  if (process.env.NODE_ENV === 'development') {
+    return envUrl || 'ws://localhost:5000';
+  }
+  if (envUrl) return envUrl;
+  if (typeof window !== 'undefined') {
+    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    return `${proto}://${window.location.host}`;
+  }
+  return 'ws://localhost:5000';
+})();
 
 export function useWebSocket(options: UseWebSocketOptions = {}): WebSocketHookReturn {
   const { enabled = true, reconnectAttempts = 5, reconnectDelay = 2000 } = options;
