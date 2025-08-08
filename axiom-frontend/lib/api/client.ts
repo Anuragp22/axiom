@@ -93,13 +93,19 @@ class HttpClient {
   private requestCounter = 0;
 
   constructor() {
+    const shouldBypassNgrok = /ngrok/.test(API_BASE_URL);
+    const defaultHeaders: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    };
+    if (shouldBypassNgrok) {
+      defaultHeaders['ngrok-skip-browser-warning'] = 'true';
+    }
+
     this.client = axios.create({
       baseURL: `${API_BASE_URL}${API_VERSION}`,
       timeout: REQUEST_TIMEOUT,
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
+      headers: defaultHeaders,
       // Optimize axios performance
       maxContentLength: Infinity,
       maxBodyLength: Infinity,
