@@ -53,7 +53,7 @@ class AxiomServer {
       origin: config.cors.origin,
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'x-request-id', 'x-timestamp'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'x-request-id', 'x-timestamp', 'ngrok-skip-browser-warning'],
     }));
 
     // Rate limiting
