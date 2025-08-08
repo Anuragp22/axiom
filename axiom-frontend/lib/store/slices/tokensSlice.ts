@@ -1,8 +1,8 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
-import { Token, LoadingState, PaginationState } from '@/lib/types';
+import { LoadingState, PaginationState } from '@/lib/types';
 
 interface TokensState {
-  tokens: Token[];
+  tokens: any[];
   selectedTokens: string[];
   favoriteTokens: string[];
   loading: LoadingState;
@@ -49,19 +49,19 @@ const tokensSlice = createSlice({
   name: 'tokens',
   initialState,
   reducers: {
-    setTokens: (state, action: PayloadAction<Token[]>) => {
+    setTokens: (state, action: PayloadAction<any[]>) => {
       state.tokens = action.payload;
       state.lastUpdated = Date.now();
     },
     
-    addTokens: (state, action: PayloadAction<Token[]>) => {
-      const existingIds = new Set(state.tokens.map(t => t.id));
-      const newTokens = action.payload.filter(t => !existingIds.has(t.id));
-      state.tokens.push(...newTokens);
+    addTokens: (state, action: PayloadAction<any[]>) => {
+      const existing = new Set(state.tokens.map(p => p.pairAddress || p.baseToken?.address));
+      const incoming = action.payload.filter(p => !existing.has(p.pairAddress || p.baseToken?.address));
+      state.tokens.push(...incoming);
     },
     
-    updateToken: (state, action: PayloadAction<Partial<Token> & { id: string }>) => {
-      const index = state.tokens.findIndex(t => t.id === action.payload.id);
+    updateToken: (state, action: PayloadAction<Partial<any> & { id: string }>) => {
+      const index = state.tokens.findIndex(t => (t.pairAddress || t.baseToken?.address) === action.payload.id);
       if (index !== -1) {
         state.tokens[index] = { ...state.tokens[index], ...action.payload };
       }
@@ -78,36 +78,44 @@ const tokensSlice = createSlice({
       const now = Date.now();
       const lastUpdate = state.lastUpdateTimestamps[tokenId] || 0;
       
-      // Throttle updates - only allow updates every UPDATE_THROTTLE_MS
-      if (now - lastUpdate < UPDATE_THROTTLE_MS) {
-        return; // Skip this update
+      // Reduce throttling to make rapid updates visible
+      if (now - lastUpdate < UPDATE_THROTTLE_MS / 2) {
+        return;
       }
       
-      const tokenIndex = state.tokens.findIndex(t => t.id === tokenId);
+      const tokenIndex = state.tokens.findIndex(t => (t.pairAddress === tokenId) || (t.baseToken?.address === tokenId));
       
       if (tokenIndex !== -1) {
-        const currentPrice = state.tokens[tokenIndex].priceData.current;
-        // Only update if price actually changed significantly (avoid micro-changes)
-        const priceChangeThreshold = Math.abs((price - currentPrice) / currentPrice) > 0.001; // 0.1% threshold
-        
-        if (priceChangeThreshold) {
-          state.tokens[tokenIndex].priceData.current = price;
-          state.tokens[tokenIndex].priceData.change24h = change;
+        const currentPrice = Number(state.tokens[tokenIndex].priceUsd || 0);
+        const priceChanged = price !== currentPrice;
+        if (priceChanged) {
+          state.tokens[tokenIndex].priceUsd = price;
+          state.tokens[tokenIndex].priceChange = {
+            ...(state.tokens[tokenIndex].priceChange || {}),
+            h24: change,
+          };
           if (volume !== undefined) {
-            state.tokens[tokenIndex].volume24h = volume;
+            state.tokens[tokenIndex].volume = {
+              ...(state.tokens[tokenIndex].volume || {}),
+              h24: volume,
+            };
           }
           if (liquidity !== undefined) {
-            state.tokens[tokenIndex].liquidity = liquidity;
+            state.tokens[tokenIndex].liquidity = {
+              ...(state.tokens[tokenIndex].liquidity || {}),
+              usd: liquidity,
+            };
           }
           
-          state.priceUpdates[tokenId] = {
+          const key = state.tokens[tokenIndex].pairAddress || tokenId;
+          state.priceUpdates[key] = {
             price,
             change,
             timestamp: now,
             animate: true,
           };
           
-          state.lastUpdateTimestamps[tokenId] = now;
+          state.lastUpdateTimestamps[key] = now;
         }
       }
     },

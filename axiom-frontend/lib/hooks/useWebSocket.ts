@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { useAppDispatch, useAppSelector } from '@/lib/store';
-import { updateTokenPrice, addTokens, setTokens } from '@/lib/store/slices/tokensSlice';
+import { updateTokenPrice, addTokens } from '@/lib/store/slices/tokensSlice';
 
 const loadSocketIO = () => import('socket.io-client').then(module => module.io);
 
@@ -59,82 +59,23 @@ export function useWebSocket(options: UseWebSocketOptions = {}): WebSocketHookRe
         setIsConnected(false);
         if (reconnectCountRef.current < reconnectAttempts) scheduleReconnect();
       });
-
-      socket.on('price_update', (message: any) => {
+      socket.on('pair_update', (message: any) => {
         const updates = message?.data?.updates || [];
         updates.forEach((u: any) => {
           dispatch(updateTokenPrice({
             tokenId: u.pairAddress || u.token_address,
-            price: u.new_price,
-            change: u.price_change_24h ?? u.price_change_percent ?? 0,
-            volume: u.new_volume_h24 ?? u.new_volume_h1,
-            liquidity: u.new_liquidity,
+            price: u.new_price ?? u.priceUsd ?? 0,
+            change: u.price_change_24h ?? u.priceChange?.h24 ?? u.price_change_percent ?? 0,
+            volume: u.new_volume_h24 ?? u.volume?.h24 ?? u.new_volume_h1,
+            liquidity: u.new_liquidity ?? u.liquidity?.usd,
           }));
         });
       });
 
-      socket.on('new_token', (message: any) => {
+      socket.on('new_token', async (message: any) => {
         const token = message?.data?.token;
         if (!token) return;
-        // The server emits backend token shape; the frontend expects transformed shape via REST normally.
-        // Here we synthesize minimal fields to render until next REST refresh.
-        const synthetic = {
-          id: token.pair_address || token.token_address,
-          name: token.token_name || token.token_ticker,
-          symbol: token.token_ticker,
-          imageUrl: `https://ui-avatars.com/api/?name=${token.token_ticker}&size=64&background=4ECDC4&color=FFFFFF&bold=true&format=png`,
-          pairInfo: {
-            baseToken: {
-              id: token.token_address,
-              symbol: token.token_ticker,
-              name: token.token_name || token.token_ticker,
-              image: `https://ui-avatars.com/api/?name=${token.token_ticker}&size=64&background=4ECDC4&color=FFFFFF&bold=true&format=png`,
-              chainId: 101,
-              address: token.token_address,
-              decimals: 9,
-            },
-            quoteToken: {
-              id: 'So11111111111111111111111111111111111111112',
-              symbol: 'SOL',
-              name: 'Solana',
-              image: '/images/solana.png',
-              chainId: 101,
-              address: 'So11111111111111111111111111111111111111112',
-              decimals: 9,
-            },
-            pairAddress: token.pair_address || token.token_address,
-            dexId: 'dexscreener',
-            url: `https://dexscreener.com/solana/${token.pair_address || token.token_address}`,
-          },
-          priceData: {
-            current: token.price_usd ?? token.price_sol ?? 0,
-            change24h: token.price_24hr_change ?? token.price_1hr_change ?? 0,
-            change1h: token.price_1hr_change ?? 0,
-            change5m: 0,
-            high24h: 0,
-            low24h: 0,
-          },
-          volumeData: { h24: token.volume_usd ?? token.volume_sol ?? 0, h6: 0, h1: 0, m5: 0 },
-          transactionData: { buys24h: 0, sells24h: 0, total24h: token.transaction_count ?? 0, makers: 0, swaps: 0 },
-          liquidityData: { usd: token.liquidity_usd ?? token.liquidity_sol ?? 0, base: 0, quote: 0 },
-          marketCap: token.market_cap_usd ?? token.market_cap_sol ?? 0,
-          liquidity: token.liquidity_usd ?? token.liquidity_sol ?? 0,
-          volume24h: token.volume_usd ?? token.volume_sol ?? 0,
-          transactions24h: token.transaction_count ?? 0,
-          buys24h: 0,
-          sells24h: 0,
-          priceChange24h: token.price_24hr_change ?? token.price_1hr_change ?? 0,
-          fdv: token.market_cap_usd ?? token.market_cap_sol ?? 0,
-          audit: { honeypot: false, isVerified: false, isScam: false, rugRisk: 'low', liquidityLocked: false, mintDisabled: false, riskScore: 0, burnPercentage: 0, isPaid: false },
-          socialLinks: { website: undefined, twitter: undefined, telegram: undefined },
-          age: '1h',
-          communityUrl: undefined,
-          isPumpFun: false,
-          isGraduated: false,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        } as any;
-        dispatch(addTokens([synthetic]));
+        dispatch(addTokens([token] as any));
       });
 
       socketRef.current = socket;

@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
-import { SimpleTokenAvatar } from '@/components/ui/token-avatar';
+import { SimpleTokenAvatar, TokenAvatar } from '@/components/ui/token-avatar';
 import { Token } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { Popover, PopoverTrigger, PopoverContent } from '@radix-ui/react-popover';
@@ -18,22 +18,25 @@ export const TokenDetailsPopover: React.FC<TokenDetailsPopoverProps> = ({
   children,
   similarTokens = []
 }) => {
-  const formatNumber = (num: number) => {
+  const formatNumber = (value: any) => {
+    const num = Number(value || 0);
     if (num >= 1e9) return `$${(num / 1e9).toFixed(1)}B`;
     if (num >= 1e6) return `$${(num / 1e6).toFixed(1)}M`;
     if (num >= 1e3) return `$${(num / 1e3).toFixed(1)}K`;
     return `$${num.toFixed(2)}`;
   };
 
-  const formatCount = (num: number) => {
+  const formatCount = (value: any) => {
+    const num = Number(value || 0);
     if (num >= 1e6) return `${(num / 1e6).toFixed(1)}M`;
     if (num >= 1e3) return `${(num / 1e3).toFixed(1)}K`;
-    return num.toString();
+    return String(num);
   };
 
-  const getChangeColor = (change: number) => {
-    if (change > 0) return 'text-green-400';
-    if (change < 0) return 'text-red-400';
+  const getChangeColor = (change: any) => {
+    const value = Number(change || 0);
+    if (value > 0) return 'text-green-400';
+    if (value < 0) return 'text-red-400';
     return 'text-gray-400';
   };
 
@@ -54,11 +57,12 @@ export const TokenDetailsPopover: React.FC<TokenDetailsPopoverProps> = ({
           {/* Header with large token image */}
           <div className="flex items-start gap-4">
             <div className="relative">
-              <SimpleTokenAvatar 
-                symbol={token.symbol}
-                name={token.name}
+              <TokenAvatar 
+                symbol={(token as any)?.baseToken?.symbol || ''}
+                name={(token as any)?.baseToken?.name || ''}
                 size={80}
                 className="rounded-lg"
+                imageUrl={(token as any)?.info?.imageUrl}
               />
               {/* AMM Badge */}
               <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-full flex items-center justify-center">
@@ -70,43 +74,46 @@ export const TokenDetailsPopover: React.FC<TokenDetailsPopoverProps> = ({
             
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-1">
-                <h3 className="text-white text-lg font-semibold truncate">{token.name}</h3>
-                <button className="text-gray-400 hover:text-white transition-colors" aria-label={`Copy ${token.name} address to clipboard`}>
+                <h3 className="text-white text-lg font-semibold truncate">{(token as any)?.baseToken?.name || (token as any)?.baseToken?.symbol || ''}</h3>
+                <button className="text-gray-400 hover:text-white transition-colors" aria-label={`Copy ${(token as any)?.baseToken?.name || ''} address to clipboard`}>
                   <i className="ri-file-copy-line text-sm"></i>
                 </button>
               </div>
               <div className="flex items-center gap-2 mb-2">
-                <span className="text-gray-300 text-sm">{token.symbol}</span>
-                <span className="text-green-400 text-sm font-medium">{token.age}</span>
+                <span className="text-gray-300 text-sm">{(token as any)?.baseToken?.symbol || ''}</span>
               </div>
               <div className="flex items-center gap-3">
+                {((token as any)?.info?.websites?.[0]?.url) && (
+                  <a 
+                    href={(token as any).info.websites[0].url} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="text-[#5DBCFF] hover:text-[#70c4ff] transition-colors"
+                    aria-label={`View ${(token as any)?.baseToken?.name || ''} website (opens in new tab)`}
+                  >
+                    <i className="ri-link text-lg"></i>
+                  </a>
+                )}
                 <a 
-                  href={token.communityUrl || '#'} 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="text-[#5DBCFF] hover:text-[#70c4ff] transition-colors"
-                  aria-label={`View ${token.name} community page (opens in new tab)`}
-                >
-                  <i className="ri-group-3-line text-lg"></i>
-                </a>
-                <a 
-                  href={`https://x.com/search?q=${token.symbol}`} 
+                  href={`https://x.com/search?q=${encodeURIComponent((token as any)?.baseToken?.symbol || '')}`} 
                   target="_blank" 
                   rel="noopener noreferrer"
                   className="text-gray-400 hover:text-white transition-colors"
-                  aria-label={`Search for ${token.symbol} on X (formerly Twitter) (opens in new tab)`}
+                  aria-label={`Search for ${(token as any)?.baseToken?.symbol || ''} on X (formerly Twitter) (opens in new tab)`}
                 >
                   <i className="ri-search-line text-lg"></i>
                 </a>
-                <a 
-                  href={token.pairInfo.url} 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="text-gray-400 hover:text-white transition-colors"
-                  aria-label={`View ${token.name} trading pair details (opens in new tab)`}
-                >
-                  <i className="ri-external-link-line text-lg"></i>
-                </a>
+                {(((token as any)?.url) || ((token as any)?.pairAddress)) && (
+                  <a 
+                    href={(token as any).url || `https://dexscreener.com/solana/${(token as any).pairAddress}`} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="text-gray-400 hover:text-white transition-colors"
+                    aria-label={`View ${((token as any)?.baseToken?.name || '')} trading pair details (opens in new tab)`}
+                  >
+                    <i className="ri-external-link-line text-lg"></i>
+                  </a>
+                )}
               </div>
             </div>
           </div>
@@ -115,26 +122,26 @@ export const TokenDetailsPopover: React.FC<TokenDetailsPopoverProps> = ({
           <div className="grid grid-cols-2 gap-4 py-3 border-t border-[#2a2d3a]">
             <div>
               <div className="text-gray-400 text-xs mb-1">Market Cap</div>
-              <div className="text-white font-medium">{formatNumber(token.marketCap)}</div>
-              <div className={cn("text-xs font-medium", getChangeColor(token.priceChange24h))}>
-                {token.priceChange24h >= 0 ? '+' : ''}{token.priceChange24h.toFixed(2)}%
+              <div className="text-white font-medium">{formatNumber((token as any).fdv || (token as any).marketCap || 0)}</div>
+              <div className={cn("text-xs font-medium", getChangeColor((token as any)?.priceChange?.h24 || 0))}>
+                {Number(((token as any)?.priceChange?.h24 || 0)) >= 0 ? '+' : ''}{Number(((token as any)?.priceChange?.h24 || 0)).toFixed(2)}%
               </div>
             </div>
             <div>
               <div className="text-gray-400 text-xs mb-1">Liquidity</div>
-              <div className="text-white font-medium">{formatNumber(token.liquidity)}</div>
+              <div className="text-white font-medium">{formatNumber((token as any)?.liquidity?.usd || 0)}</div>
             </div>
             <div>
               <div className="text-gray-400 text-xs mb-1">Volume 24h</div>
-              <div className="text-white font-medium">{formatNumber(token.volume24h)}</div>
+              <div className="text-white font-medium">{formatNumber((token as any)?.volume?.h24 || 0)}</div>
             </div>
             <div>
               <div className="text-gray-400 text-xs mb-1">Transactions</div>
-              <div className="text-white font-medium">{formatCount(token.transactions24h)}</div>
+              <div className="text-white font-medium">{formatCount(((token as any)?.txns?.h24?.buys || 0) + ((token as any)?.txns?.h24?.sells || 0))}</div>
               <div className="text-xs">
-                <span className="text-green-400">{token.buys24h}</span>
+                <span className="text-green-400">{formatCount((token as any)?.txns?.h24?.buys || 0)}</span>
                 <span className="text-gray-400"> / </span>
-                <span className="text-red-400">{token.sells24h}</span>
+                <span className="text-red-400">{formatCount((token as any)?.txns?.h24?.sells || 0)}</span>
               </div>
             </div>
           </div>
@@ -144,28 +151,27 @@ export const TokenDetailsPopover: React.FC<TokenDetailsPopoverProps> = ({
             <div className="border-t border-[#2a2d3a] pt-3">
               <div className="text-gray-400 text-sm mb-3">Similar Tokens</div>
               <div className="space-y-2">
-                {similarTokens.slice(0, 2).map((similarToken: Token, index: number) => (
+                {similarTokens.slice(0, 2).map((similarToken: any, index: number) => (
                   <div key={index} className="flex items-center gap-3 p-2 rounded-lg hover:bg-[#2a2d3a] transition-colors cursor-pointer">
                     <SimpleTokenAvatar 
-                      symbol={similarToken.symbol}
-                      name={similarToken.name}
+                      symbol={(similarToken as any)?.baseToken?.symbol || ''}
+                      name={(similarToken as any)?.baseToken?.name || ''}
                       size={32}
                       className="rounded-md"
                     />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="text-white text-sm font-medium">{similarToken.symbol}</span>
-                        <span className="text-gray-400 text-xs">TX: {similarToken.age}</span>
+                        <span className="text-white text-sm font-medium">{(similarToken as any)?.baseToken?.symbol || ''}</span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className={cn("text-xs font-medium", getChangeColor(similarToken.priceChange24h))}>
-                          {similarToken.priceChange24h >= 0 ? '+' : ''}{similarToken.priceChange24h.toFixed(2)}%
+                        <span className={cn("text-xs font-medium", getChangeColor((similarToken as any)?.priceChange?.h24 || 0))}>
+                          {Number(((similarToken as any)?.priceChange?.h24 || 0)) >= 0 ? '+' : ''}{Number(((similarToken as any)?.priceChange?.h24 || 0)).toFixed(2)}%
                         </span>
-                        <span className="text-gray-400 text-xs">{formatCount(similarToken.transactions24h)}</span>
+                        <span className="text-gray-400 text-xs">{formatCount((((similarToken as any)?.txns?.h24?.buys || 0) + ((similarToken as any)?.txns?.h24?.sells || 0)) || 0)}</span>
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className="text-white text-sm font-medium">{formatNumber(similarToken.marketCap)}</div>
+                      <div className="text-white text-sm font-medium">{formatNumber((similarToken as any)?.fdv || (similarToken as any)?.marketCap || 0)}</div>
                     </div>
                   </div>
                 ))}

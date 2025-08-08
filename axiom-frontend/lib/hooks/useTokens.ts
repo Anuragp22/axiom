@@ -1,9 +1,10 @@
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useMemo, useEffect } from 'react';
-import { tokenApi } from '@/lib/api/tokens';
-import { Token, TableFilters, TokenListResponse } from '@/lib/types';
+import { TableFilters, TokenListResponse, Token } from '@/lib/types';
 import { useAppSelector, useAppDispatch } from '@/lib/store';
 import { setTokens, addTokens, setLoading, setPagination } from '@/lib/store/slices/tokensSlice';
+import { apiClient } from '@/lib/api/client';
+import tokenApi from '../api/tokens';
 
 // Query keys for React Query
 export const tokenQueryKeys = {
@@ -47,15 +48,23 @@ export function useTokens(
     queryFn: async (): Promise<TokenListResponse> => {
       dispatch(setLoading({ isLoading: true, error: null }));
       try {
-        const result = await tokenApi.getTokens(filters, page, pageSize, cursor);
+        // Fetch raw pairs from backend; no transform
+        const response: any = await apiClient.get<{ tokens: any[] }>(`/tokens`);
+        const tokens = Array.isArray(response?.tokens) ? response.tokens : [];
+        const result: TokenListResponse = {
+          tokens: tokens as any,
+          pagination: { page, pageSize, total: tokens.length, totalPages: 1, hasMore: false },
+          filters: filters as any,
+        };
         
         // Update Redux store
-        if (page === 1) {
-          dispatch(setTokens(result.tokens));
-        } else {
-          dispatch(addTokens(result.tokens));
-        }
-        dispatch(setPagination(result.pagination));
+         if (page === 1 && result.tokens.length) {
+           dispatch(setTokens(result.tokens));
+           dispatch(setPagination(result.pagination));
+         } else if (result.tokens.length) {
+           dispatch(addTokens(result.tokens));
+           dispatch(setPagination(result.pagination));
+         }
         dispatch(setLoading({ isLoading: false }));
         
         return result;
@@ -340,14 +349,14 @@ export function useTokensWithState() {
   }), [filters, searchQuery, quickFilter, timeframe]);
   
   // Choose data source based on active tab
-  const trendingQuery = useTrendingTokens(100, { enabled: false });
-  const featuredQuery = useFeaturedTokens({ enabled: false });
+  const trendingQuery = useTrendingTokens(100, { enabled: activeTab === 'trending' });
+  const featuredQuery = useFeaturedTokens({ enabled: activeTab === 'pump-live' });
   const regularQuery = useTokens(
     combinedFilters,
     reduxState.pagination.page,
     reduxState.pagination.pageSize,
     reduxState.pagination.cursor,
-    { enabled: false }
+    { enabled: activeTab === 'dex-screener' }
   );
 
   // Update Redux store when data changes

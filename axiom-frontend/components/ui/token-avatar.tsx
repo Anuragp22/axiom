@@ -9,6 +9,8 @@ interface TokenAvatarProps {
   name?: string;
   size?: number;
   className?: string;
+  imageUrl?: string;
+  fitParent?: boolean;
 }
 
 // Generate consistent colors based on symbol
@@ -48,6 +50,8 @@ export const TokenAvatar: React.FC<TokenAvatarProps> = ({
   name,
   size = 64,
   className,
+  imageUrl,
+  fitParent = false,
 }) => {
   const [imageError, setImageError] = useState(false);
   const colors = generateAvatarColor(symbol);
@@ -74,25 +78,45 @@ export const TokenAvatar: React.FC<TokenAvatarProps> = ({
     </div>
   );
 
-  // If image failed to load or we want to skip external images, show fallback
-  if (imageError) {
-    return <FallbackAvatar />;
+  // If image failed to load or none provided, show fallback
+  if (imageError || !imageUrl) {
+    return (
+      <div
+        className={cn("relative overflow-hidden rounded-lg", className)}
+        style={fitParent ? undefined : { width: size, height: size }}
+      >
+        <FallbackAvatar />
+      </div>
+    );
   }
 
   return (
-    <div className={cn("relative overflow-hidden rounded-lg", className)} style={{ width: size, height: size }}>
-      <Image
-        src={generateTokenImageUrl(symbol, size)}
-        alt={`${symbol} token`}
-        width={size}
-        height={size}
-        className="object-cover"
-        onError={() => setImageError(true)}
-        onLoadingComplete={() => setImageError(false)}
-        title={name || symbol}
-        // Add priority for above-the-fold images
-        priority={size > 48}
-      />
+    <div className={cn("relative overflow-hidden rounded-lg", className)} style={fitParent ? undefined : { width: size, height: size }}>
+      {fitParent ? (
+        <Image
+          src={imageUrl}
+          alt={`${symbol} token`}
+          fill
+          sizes="(max-width: 768px) 36px, 56px"
+          className="object-cover"
+          onError={() => setImageError(true)}
+          onLoadingComplete={() => setImageError(false)}
+          title={name || symbol}
+          priority={size > 48}
+        />
+      ) : (
+        <Image
+          src={imageUrl}
+          alt={`${symbol} token`}
+          width={size}
+          height={size}
+          className="object-cover"
+          onError={() => setImageError(true)}
+          onLoadingComplete={() => setImageError(false)}
+          title={name || symbol}
+          priority={size > 48}
+        />
+      )}
     </div>
   );
 };

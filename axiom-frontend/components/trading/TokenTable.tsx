@@ -1,16 +1,13 @@
 'use client';
-
-import Image from 'next/image';
 import React, { useMemo, useCallback, useEffect, useState } from 'react';
-import { SimpleTokenAvatar } from '@/components/ui/token-avatar';
+import { SimpleTokenAvatar, TokenAvatar } from '@/components/ui/token-avatar';
 import { TokenDetailsPopover } from '@/components/ui/token-details-popover';
 import { useTokensWithState } from '@/lib/hooks/useTokens';
-import { useRealTimeUpdates } from '@/lib/hooks/useWebSocket';
 import { useAppDispatch, useAppSelector } from '@/lib/store';
 import { setSortBy, setSortDirection } from '@/lib/store/slices/filtersSlice';
-import { clearPriceAnimations, setPagination, toggleFavoriteToken, toggleTokenSelection } from '@/lib/store/slices/tokensSlice';
+import { clearPriceAnimations, toggleFavoriteToken, toggleTokenSelection } from '@/lib/store/slices/tokensSlice';
 import { openBuy, openTokenDetails } from '@/lib/store/slices/modalsSlice';
-import { TokenTableSkeleton, PulseAnimation, DataStatusIndicator } from '@/components/ui/loading-states';
+import { TokenTableSkeleton, PulseAnimation } from '@/components/ui/loading-states';
 import { ErrorBoundary, ErrorAlert } from '@/components/ui/error-boundary';
 
 import { Token } from '@/lib/types';
@@ -30,7 +27,7 @@ interface TokenRowProps {
   onDetails?: (tokenId: string) => void;
 }
 
-const TokenRow = ({ 
+  const TokenRow = ({ 
   token, 
   isSelected = false, 
   priceUpdate,
@@ -39,32 +36,25 @@ const TokenRow = ({
   onBuy,
   onDetails 
 }: TokenRowProps) => {
-  const formatNumber = (num: number) => {
-    if (num >= 1000000) {
-      return `$${(num / 1000000).toFixed(1)}M`;
-    } else if (num >= 1000) {
-      return `$${(num / 1000).toFixed(1)}K`;
-    }
+  const formatNumber = (value: any) => {
+    const num = Number(value || 0);
+    if (num >= 1_000_000) return `$${(num / 1_000_000).toFixed(1)}M`;
+    if (num >= 1_000) return `$${(num / 1_000).toFixed(1)}K`;
     return `$${num.toFixed(0)}`;
   };
 
-  const formatCount = (num: number) => {
-    if (num >= 1000) {
-      return `${(num / 1000).toFixed(1)}K`;
-    }
-    return num.toString();
+  const formatCount = (value: any) => {
+    const num = Number(value || 0);
+    if (num >= 1000) return `${(num / 1000).toFixed(1)}K`;
+    return String(num);
   };
 
-  const formatPrice = (price: number) => {
-    if (price >= 1) {
-      return price.toFixed(4);
-    } else if (price >= 0.01) {
-      return price.toFixed(6);
-    } else if (price >= 0.000001) {
-      return price.toFixed(8);
-    } else {
-      return price.toFixed(12);
-    }
+  const formatPrice = (input: any) => {
+    const price = Number(input || 0);
+    if (price >= 1) return price.toFixed(4);
+    if (price >= 0.01) return price.toFixed(6);
+    if (price >= 0.000001) return price.toFixed(8);
+    return price.toFixed(12);
   };
 
   const getChangeColor = (change: number) => {
@@ -76,7 +66,7 @@ const TokenRow = ({
       className={`border-primaryStroke/50 border-b-[1px] bg-backgroundSecondary flex flex-col sm:flex-row w-full min-h-[120px] sm:min-h-[72px] lg:min-h-[88px] px-3 sm:px-[12px] py-3 sm:py-0 justify-start items-stretch sm:items-center active:bg-primaryStroke/50 sm:hover:bg-primaryStroke/50 cursor-pointer transition-colors duration-200 ${
         isSelected ? 'bg-primaryBlue/10 border-primaryBlue/50' : ''
       }`}
-      onClick={() => onDetails?.(token.id)}
+      onClick={() => onDetails?.(((token as any).pairAddress) || token.id)}
       style={{
         // Prevent layout shift by reserving space
         contentVisibility: 'auto',
@@ -89,18 +79,18 @@ const TokenRow = ({
         <div className="flex flex-row justify-between items-center">
           <div className="flex flex-row gap-3 items-center flex-1 min-w-0">
             <SimpleTokenAvatar 
-              symbol={token.symbol}
-              name={token.name}
+              symbol={(token as any)?.baseToken?.symbol || ''}
+              name={(token as any)?.baseToken?.name || ''}
               size={40}
               className="rounded-lg flex-shrink-0"
             />
             <div className="flex flex-col min-w-0 flex-1">
               <div className="flex flex-row gap-2 items-center min-w-0">
                 <span className="text-textPrimary text-sm font-medium truncate">
-                  {token.name}
+                  {(token as any)?.baseToken?.name || ''}
                 </span>
                 <span className="text-textTertiary text-sm font-medium truncate">
-                  {token.symbol.length > 6 ? `${token.symbol.substring(0, 6)}...` : token.symbol}
+                  {(token as any)?.baseToken?.symbol || ''}
                 </span>
               </div>
               <div className="flex flex-row gap-2 items-center">
@@ -108,13 +98,13 @@ const TokenRow = ({
                   {token.age}
                 </span>
                 {token.communityUrl && (
-                  <a 
-                    href={token.communityUrl} 
+                   <a 
+                    href={undefined} 
                     target="_blank" 
                     rel="noopener noreferrer" 
                     className="text-[#5DBCFF] hover:text-[#70c4ff] transition-colors"
                     onClick={(e) => e.stopPropagation()}
-                    aria-label={`View ${token.name} community page (opens in new tab)`}
+                    aria-label={`View community page (opens in new tab)`}
                   >
                     <i className="ri-group-3-line text-sm"></i>
                   </a>
@@ -128,15 +118,15 @@ const TokenRow = ({
               variant={priceUpdate?.change && priceUpdate.change > 0 ? "green" : "red"}
             >
               <span className="text-textPrimary text-sm font-medium">
-                ${formatPrice(priceUpdate?.price || token.priceData.current)}
+                 ${formatPrice(priceUpdate?.price || Number((token as any).priceUsd || 0))}
               </span>
             </PulseAnimation>
             <PulseAnimation 
               isAnimating={priceUpdate?.animate}
               variant={priceUpdate?.change && priceUpdate.change > 0 ? "green" : "red"}
             >
-              <span className={`text-xs font-medium ${getChangeColor(priceUpdate?.change || token.priceChange24h)}`}>
-                {(priceUpdate?.change || token.priceChange24h) >= 0 ? '+' : ''}{(priceUpdate?.change || token.priceChange24h).toFixed(2)}%
+               <span className={`text-xs font-medium ${getChangeColor(priceUpdate?.change || (token as any)?.priceChange?.h24 || 0)}`}>
+                 {(priceUpdate?.change || (token as any)?.priceChange?.h24 || 0) >= 0 ? '+' : ''}{(priceUpdate?.change || (token as any)?.priceChange?.h24 || 0).toFixed(2)}%
               </span>
             </PulseAnimation>
           </div>
@@ -146,15 +136,15 @@ const TokenRow = ({
         <div className="grid grid-cols-3 gap-4 text-xs">
           <div className="flex flex-col">
             <span className="text-textSecondary font-medium mb-1">Market Cap</span>
-            <span className="text-textPrimary font-medium">{formatNumber(token.marketCap)}</span>
+             <span className="text-textPrimary font-medium">{formatNumber((token as any).fdv || (token as any).marketCap || 0)}</span>
           </div>
           <div className="flex flex-col">
             <span className="text-textSecondary font-medium mb-1">Liquidity</span>
-            <span className="text-textPrimary font-medium">{formatNumber(token.liquidity)}</span>
+             <span className="text-textPrimary font-medium">{formatNumber((token as any).liquidity?.usd || 0)}</span>
           </div>
           <div className="flex flex-col">
             <span className="text-textSecondary font-medium mb-1">Volume</span>
-            <span className="text-textPrimary font-medium">{formatNumber(token.volume24h)}</span>
+             <span className="text-textPrimary font-medium">{formatNumber((token as any).volume?.h24 || 0)}</span>
           </div>
         </div>
       </div>
@@ -177,17 +167,20 @@ const TokenRow = ({
                 <div className="w-[36px] sm:w-[46px] lg:w-[56px] h-[36px] sm:h-[46px] lg:h-[56px] flex-shrink-0 group/image relative">
                   <div className="pointer-events-none border-textPrimary/10 border-[1px] absolute w-full h-full z-10 rounded-[1px]"></div>
                   <div className="w-full h-full relative">
-                    <SimpleTokenAvatar 
-                      symbol={token.symbol}
-                      name={token.name}
+                    
+                    <TokenAvatar 
+                      symbol={(token as any)?.baseToken?.symbol || ''}
+                      name={(token as any)?.baseToken?.name || ''}
                       size={36}
                       className="rounded-[1px] w-full h-full"
+                      imageUrl={(token as any)?.info?.imageUrl}
+                      fitParent
                     />
                     <TokenDetailsPopover token={token}>
                       <button 
                         className="absolute inset-0 bg-black/50 opacity-0 group-hover/image:opacity-100 transition-opacity duration-200 flex items-center justify-center"
                         onClick={(e) => e.stopPropagation()}
-                        aria-label={`View ${token.name} token details`}
+                          aria-label={`View token details`}
                       >
                         <i className="ri-camera-line text-white text-[16px] sm:text-[20px] lg:text-[24px]"></i>
                       </button>
@@ -205,23 +198,23 @@ const TokenRow = ({
           <div className="flex flex-col gap-[4px] justify-start items-start">
             <div className="flex flex-row gap-[4px] justify-start items-center">
               <span className="text-textPrimary text-[12px] sm:text-[16px] font-medium tracking-[-0.02em]">
-                {token.name}
+                {(token as any)?.baseToken?.name || ''}
               </span>
               <span className="contents">
                 <div className="group flex flex-row gap-[4px] justify-start items-center">
                   <span className="text-textTertiary text-[12px] sm:text-[16px] font-medium tracking-[-0.02em] group-hover:text-primaryBlueHover transition-colors duration-[125ms] cursor-pointer">
-                    {token.symbol.length > 8 ? `${token.symbol.substring(0, 8)}...` : token.symbol}
+                    {(token as any)?.baseToken?.symbol || ''}
                   </span>
-                  <button className="group-hover:text-primaryBlue transition-colors duration-200 cursor-pointer" aria-label={`Copy ${token.symbol} token symbol to clipboard`}>
+                  <button className="group-hover:text-primaryBlue transition-colors duration-200 cursor-pointer" aria-label={`Copy token symbol to clipboard`}>
                     <i className="text-textTertiary ri-file-copy-fill text-[12px] sm:text-[14px] group-hover:text-primaryBlueHover"></i>
                   </button>
                 </div>
               </span>
             </div>
             <div className="flex flex-row gap-[8px] justify-start items-center">
-              <span className="text-primaryGreen text-[12px] sm:text-[14px] font-medium">
+              {/* <span className="text-primaryGreen text-[12px] sm:text-[14px] font-medium">
                 {token.age}
-              </span>
+              </span> */}
               <div>
                 <a 
                   href={token.communityUrl || '#'} 
@@ -234,11 +227,11 @@ const TokenRow = ({
                 </a>
               </div>
               <a 
-                href={`https://x.com/search?q=${token.symbol}`} 
+                href={`https://x.com/search?q=${encodeURIComponent((token as any)?.baseToken?.symbol || '')}`} 
                 target="_blank" 
                 rel="noopener noreferrer" 
                 className="flex items-center"
-                aria-label={`Search for ${token.symbol} on X (formerly Twitter) (opens in new tab)`}
+                aria-label={`Search for token on X (formerly Twitter) (opens in new tab)`}
               >
                 <i className="text-textSecondary ri-search-line text-[14px] sm:text-[16px] hover:text-primaryBlueHover transition-colors duration-[125ms]"></i>
               </a>
@@ -254,9 +247,9 @@ const TokenRow = ({
                 isAnimating={priceUpdate?.animate}
                 variant="green"
               >
-                <span className="text-textPrimary text-[11px] lg:text-[14px] font-medium">
-                  {formatNumber(token.marketCap)}
-                </span>
+                 <span className="text-textPrimary text-[11px] lg:text-[14px] font-medium">
+                   {formatNumber((token as any).fdv || (token as any).marketCap || 0)}
+                 </span>
               </PulseAnimation>
             </div>
           </div>
@@ -270,9 +263,9 @@ const TokenRow = ({
                 isAnimating={priceUpdate?.animate}
                 variant="green"
               >
-                <span className="text-textPrimary text-[11px] lg:text-[14px] font-medium">
-                  {formatNumber(token.liquidity)}
-                </span>
+                 <span className="text-textPrimary text-[11px] lg:text-[14px] font-medium">
+                   {formatNumber((token as any).liquidity?.usd || 0)}
+                 </span>
               </PulseAnimation>
             </div>
           </div>
@@ -286,9 +279,9 @@ const TokenRow = ({
                 isAnimating={priceUpdate?.animate}
                 variant="green"
               >
-                <span className="text-textPrimary text-[11px] lg:text-[14px] font-medium">
-                  {formatNumber(token.volume24h)}
-                </span>
+                 <span className="text-textPrimary text-[11px] lg:text-[14px] font-medium">
+                   {formatNumber((token as any).volume?.h24 || 0)}
+                 </span>
               </PulseAnimation>
             </div>
           </div>
@@ -298,54 +291,25 @@ const TokenRow = ({
         <div className="min-w-0 flex flex-1 flex-row px-[12px] justify-start items-center">
           <div className="flex flex-col gap-[4px] justify-start items-start">
             <div className="flex flex-row gap-[4px] justify-start items-center">
-              <span className="text-textPrimary text-[12px] sm:text-[14px] font-medium">
-                {formatCount(token.transactions24h)}
+               <span className="text-textPrimary text-[12px] sm:text-[14px] font-medium">
+                 {formatCount(((token as any)?.txns?.h24?.buys || 0) + ((token as any)?.txns?.h24?.sells || 0))}
               </span>
             </div>
             <div className="flex flex-row gap-[4px] justify-start items-center">
               <div className="flex flex-row gap-[4px] justify-start items-center">
                 <span className="text-increase text-[12px] font-medium font-GeistMono">
-                  {formatCount(token.buys24h)}
+                  {formatCount((token as any)?.txns?.h24?.buys || 0)}
                 </span>
                 <span className="text-textSecondary text-[12px] font-medium font-GeistMono">/</span>
                 <span className="text-decrease text-[12px] font-medium font-GeistMono">
-                  {formatCount(token.sells24h)}
+                  {formatCount((token as any)?.txns?.h24?.sells || 0)}
                 </span>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Audit Log */}
-        <div className="min-w-0 flex flex-1 flex-row px-[12px] justify-start items-center">
-          <div className="flex flex-row gap-[0px] min-w-[72px] justify-start items-center">
-            <div className="flex flex-col gap-[4px] justify-start items-start">
-              {/* Risk Score */}
-              <div className="bg-backgroundSecondary border-primaryStroke/50 border-[1px] flex flex-row h-[16px] min-h-[16px] max-h-[16px] sm:h-[20px] sm:min-h-[20px] sm:max-h-[20px] px-[4px] gap-[4px] justify-start items-center rounded-[4px]">
-                <i className="text-primaryRed ri-user-star-line text-[10px] sm:text-[12px]"></i>
-                <span className="text-primaryRed font-GeistMono text-[10px] sm:text-[11px] font-medium">
-                  {token.audit.riskScore}%
-                </span>
-              </div>
-              
-              {/* Burn Status */}
-              <div className="bg-backgroundSecondary border-primaryStroke/50 border-[1px] flex flex-row h-[16px] min-h-[16px] max-h-[16px] sm:h-[20px] sm:min-h-[20px] sm:max-h-[20px] px-[4px] gap-[4px] justify-start items-center rounded-[4px]">
-                <i className="text-primaryGreen ri-fire-line text-[10px] sm:text-[12px]"></i>
-                <span className="text-primaryGreen font-GeistMono text-[10px] sm:text-[11px] font-medium">
-                  {token.audit.burnPercentage}%
-                </span>
-              </div>
-              
-              {/* Paid Status */}
-              <div className="bg-backgroundSecondary border-primaryStroke/50 border-[1px] flex flex-row h-[16px] min-h-[16px] max-h-[16px] sm:h-[20px] sm:min-h-[20px] sm:max-h-[20px] px-[4px] gap-[4px] justify-start items-center rounded-[4px]">
-                <i className={`${token.audit.isPaid ? 'text-primaryGreen' : 'text-textSecondary'} ri-vip-crown-line text-[10px] sm:text-[12px]`}></i>
-                <span className={`${token.audit.isPaid ? 'text-primaryGreen' : 'text-textSecondary'} font-GeistMono text-[10px] sm:text-[11px] font-medium`}>
-                  {token.audit.isPaid ? 'PAID' : 'FREE'}
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
+        {/* Audit removed */}
 
         {/* Action */}
         <div className="min-w-0 flex flex-1 flex-row px-[12px] justify-start items-center">
@@ -389,26 +353,18 @@ const TokenRow = ({
 
 export const TokenTable = () => {
   const dispatch = useAppDispatch();
-  const {
-    tokens,
-    loading,
-    error,
-    selectedTokens,
-    favoriteTokens,
-    priceUpdates,
-  } = useTokensWithState();
+  const { tokens, loading, error, selectedTokens, priceUpdates } = useTokensWithState();
   
   const filters = useAppSelector(state => state.filters.filters);
-  const { isConnected } = useRealTimeUpdates();
 
-  // Clear animation flags after a delay
+  // Clear animation flags after a delay when any token is animating
   useEffect(() => {
     const animatingTokens = Object.entries(priceUpdates).filter(([_, update]) => update.animate);
     
     if (animatingTokens.length > 0) {
       const timeout = setTimeout(() => {
         dispatch(clearPriceAnimations());
-      }, 1000);
+      }, 800);
       
       return () => clearTimeout(timeout);
     }
@@ -451,37 +407,37 @@ export const TokenTable = () => {
   const { sortedTokens, totalFilteredCount, paginatedTokens } = useMemo(() => {
     if (!tokens.length) return { sortedTokens: [], totalFilteredCount: 0, paginatedTokens: [] };
 
-    let filteredTokens = [...tokens];
+    // tokens are raw pairs now
+    let filteredTokens = [...(tokens as any[])];
 
     // Apply search filter
     if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase().trim();
-      filteredTokens = filteredTokens.filter(token => 
-        token.name.toLowerCase().includes(query) ||
-        token.symbol.toLowerCase().includes(query) ||
-        token.pairInfo.pairAddress.toLowerCase().includes(query)
-      );
+        const query = searchQuery.toLowerCase().trim();
+        filteredTokens = filteredTokens.filter(pair => {
+          const name = pair?.baseToken?.name || '';
+          const symbol = pair?.baseToken?.symbol || '';
+          const pairAddr = pair?.pairAddress || '';
+          return name.toLowerCase().includes(query) || symbol.toLowerCase().includes(query) || pairAddr.toLowerCase().includes(query);
+        });
     }
 
     // Apply quick filters
     switch (quickFilter) {
       case 'trending':
-        filteredTokens = filteredTokens.filter(token => token.volume24h > 50000);
+        filteredTokens = filteredTokens.filter(pair => (pair?.volume?.h24 || 0) > 50000);
         break;
       case 'new':
         const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
-        filteredTokens = filteredTokens.filter(token => 
-          new Date(token.createdAt).getTime() > oneDayAgo
-        );
+        filteredTokens = filteredTokens.filter(pair => (pair?.createdAt ? new Date(pair.createdAt).getTime() : 0) > oneDayAgo);
         break;
       case 'gainers':
-        filteredTokens = filteredTokens.filter(token => token.priceChange24h > 0);
+        filteredTokens = filteredTokens.filter(pair => (pair?.priceChange?.h24 || 0) > 0);
         break;
       case 'losers':
-        filteredTokens = filteredTokens.filter(token => token.priceChange24h < 0);
+        filteredTokens = filteredTokens.filter(pair => (pair?.priceChange?.h24 || 0) < 0);
         break;
       case 'volume':
-        filteredTokens = filteredTokens.filter(token => token.volume24h > 100000);
+        filteredTokens = filteredTokens.filter(pair => (pair?.volume?.h24 || 0) > 100000);
         break;
       case 'pump':
         filteredTokens = filteredTokens.filter(token => token.isPumpFun);
@@ -493,49 +449,64 @@ export const TokenTable = () => {
     }
 
     // Apply main filters
-    if (filters.minMarketCap) {
-      filteredTokens = filteredTokens.filter(token => token.marketCap >= filters.minMarketCap!);
-    }
-    if (filters.maxMarketCap) {
-      filteredTokens = filteredTokens.filter(token => token.marketCap <= filters.maxMarketCap!);
-    }
-    if (filters.minLiquidity) {
-      filteredTokens = filteredTokens.filter(token => token.liquidity >= filters.minLiquidity!);
-    }
-    if (filters.maxLiquidity) {
-      filteredTokens = filteredTokens.filter(token => token.liquidity <= filters.maxLiquidity!);
-    }
-    if (filters.minVolume) {
-      filteredTokens = filteredTokens.filter(token => token.volume24h >= filters.minVolume!);
-    }
-    if (filters.maxVolume) {
-      filteredTokens = filteredTokens.filter(token => token.volume24h <= filters.maxVolume!);
-    }
+    if (filters.minMarketCap) filteredTokens = filteredTokens.filter(pair => (pair?.fdv || 0) >= filters.minMarketCap!);
+    if (filters.maxMarketCap) filteredTokens = filteredTokens.filter(pair => (pair?.fdv || 0) <= filters.maxMarketCap!);
+    if (filters.minLiquidity) filteredTokens = filteredTokens.filter(pair => (pair?.liquidity?.usd || 0) >= filters.minLiquidity!);
+    if (filters.maxLiquidity) filteredTokens = filteredTokens.filter(pair => (pair?.liquidity?.usd || 0) <= filters.maxLiquidity!);
+    if (filters.minVolume) filteredTokens = filteredTokens.filter(pair => (pair?.volume?.h24 || 0) >= filters.minVolume!);
+    if (filters.maxVolume) filteredTokens = filteredTokens.filter(pair => (pair?.volume?.h24 || 0) <= filters.maxVolume!);
 
     // Apply sorting
     const sorted = filteredTokens.sort((a, b) => {
       const direction = filters.sortDirection === 'asc' ? 1 : -1;
       
       switch (filters.sortBy) {
-        case 'marketCap':
-          return (a.marketCap - b.marketCap) * direction;
+        case 'marketCap': {
+          const av = (a?.fdv ?? a?.marketCap ?? 0);
+          const bv = (b?.fdv ?? b?.marketCap ?? 0);
+          return (av - bv) * direction;
+        }
         case 'liquidity':
-          return (a.liquidity - b.liquidity) * direction;
-        case 'volume':
-          return (a.volume24h - b.volume24h) * direction;
-        case 'priceChange':
-          return (a.priceChange24h - b.priceChange24h) * direction;
-        case 'transactions':
-          return (a.transactions24h - b.transactions24h) * direction;
+          return ((a?.liquidity?.usd || 0) - (b?.liquidity?.usd || 0)) * direction;
+        case 'volume': {
+          const timeframe = (filters.timeframe || '24h');
+          const getVol = (p: any) => {
+            if (timeframe === '5m') return p?.volume?.m5 ?? p?.volume?.h1 ?? 0;
+            if (timeframe === '1h') return p?.volume?.h1 ?? 0;
+            if (timeframe === '6h') return p?.volume?.h6 ?? p?.volume?.h24 ?? 0;
+            return p?.volume?.h24 ?? 0;
+          };
+          return (getVol(a) - getVol(b)) * direction;
+        }
+        case 'priceChange': {
+          const timeframe = (filters.timeframe || '24h');
+          const getChange = (p: any) => {
+            if (timeframe === '5m') return p?.priceChange?.m5 ?? p?.priceChange?.h1 ?? 0;
+            if (timeframe === '1h') return p?.priceChange?.h1 ?? 0;
+            if (timeframe === '6h') return p?.priceChange?.h6 ?? p?.priceChange?.h24 ?? 0;
+            return p?.priceChange?.h24 ?? 0;
+          };
+          return (getChange(a) - getChange(b)) * direction;
+        }
+        case 'transactions': {
+          const timeframe = (filters.timeframe || '24h');
+          const getTx = (p: any) => {
+            if (timeframe === '5m') return (p?.txns?.m5?.buys || 0) + (p?.txns?.m5?.sells || 0);
+            if (timeframe === '1h') return (p?.txns?.h1?.buys || 0) + (p?.txns?.h1?.sells || 0);
+            if (timeframe === '6h') return (p?.txns?.h6?.buys || 0) + (p?.txns?.h6?.sells || 0);
+            return (p?.txns?.h24?.buys || 0) + (p?.txns?.h24?.sells || 0);
+          };
+          return (getTx(a) - getTx(b)) * direction;
+        }
         case 'age':
-          return (new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()) * direction;
+          return 0;
         default:
           return 0;
       }
     });
 
-    // Limit visible tokens to improve performance
-    const maxVisible = 50; // Limit to 50 tokens for better performance
+    // Show more rows to make live updates visible across list
+    const maxVisible = 150;
     const visibleTokens = sorted.slice(0, maxVisible);
 
     return {
@@ -616,7 +587,7 @@ export const TokenTable = () => {
         {/* Table Container with Fixed Height */}
         <div className="border border-primaryStroke/50 rounded-lg bg-backgroundSecondary overflow-hidden">
           {/* Table Header - Desktop Only */}
-          <div className="hidden sm:flex border-primaryStroke/50 border-b-[1px] bg-backgroundSecondary flex-row w-full h-[48px] min-h-[48px] max-h-[48px] px-[12px] justify-start items-center sticky top-0 z-10">
+            <div className="hidden sm:flex border-primaryStroke/50 border-b-[1px] bg-backgroundSecondary flex-row w-full h-[48px] min-h-[48px] max-h-[48px] px-[12px] justify-start items-center sticky top-0 z-10">
           <div className="flex flex-row flex-grow w-full h-full items-center">
             {/* Pair Info Header */}
             <div className="min-w-0 flex flex-row w-[200px] lg:w-[320px] px-[12px] gap-[12px] justify-start items-center">
@@ -645,12 +616,7 @@ export const TokenTable = () => {
               <SortableHeader field="transactions">TXNS</SortableHeader>
             </div>
 
-            {/* Audit Header - Hidden on smaller screens */}
-            <div className="min-w-0 hidden lg:flex flex-1 flex-row px-[12px] justify-start items-center">
-              <span className="text-textSecondary text-[11px] lg:text-[14px] font-medium uppercase tracking-wider">
-                Audit
-              </span>
-            </div>
+            {/* Audit column removed */}
 
             {/* Action Header - Hidden on smaller screens */}
             <div className="min-w-0 hidden lg:flex flex-1 flex-row px-[12px] justify-start items-center">
@@ -667,18 +633,21 @@ export const TokenTable = () => {
               <TokenTableSkeleton rows={10} />
             ) : (
               <div className="w-full">
-                {debouncedTokens.map((token) => (
+                {debouncedTokens.map((token) => {
+                  const pairId = (token as any).pairAddress || (token as any)?.baseToken?.address || (token as any)?.id;
+                  return (
                   <TokenRow
-                    key={token.id}
+                    key={pairId}
                     token={token}
-                    isSelected={selectedTokens.includes(token.id)}
-                    priceUpdate={priceUpdates[token.id]}
-                    onSelect={handleTokenSelect}
-                    onFavorite={handleFavorite}
+                    isSelected={selectedTokens.includes(pairId)}
+                    priceUpdate={priceUpdates[pairId]}
+                    onSelect={(id) => handleTokenSelect(id)}
+                    onFavorite={(id) => handleFavorite(id)}
                     onBuy={handleBuy}
                     onDetails={handleDetails}
                   />
-                ))}
+                  );
+                })}
               </div>
             )}
 

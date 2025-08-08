@@ -29,6 +29,8 @@ export class WebSocketServer {
   private refreshBoostsInterval: NodeJS.Timeout | null = null;
   private trackedAddresses: Set<string> = new Set();
   private lastPairsByAddress: Map<string, DexPair> = new Map();
+  private jupiterTokenMap: Map<string, { symbol?: string; name?: string; logoURI?: string }> = new Map();
+  private addressSources: Map<string, Set<string>> = new Map();
 
   constructor(httpServer: HttpServer) {
     this.io = new SocketIOServer(httpServer, {
@@ -56,7 +58,7 @@ export class WebSocketServer {
       });
 
       socket.on('subscribe_tokens', () => {
-        socket.join('token_updates');
+          socket.join('token_updates');
       });
       socket.on('unsubscribe_tokens', () => {
         socket.leave('token_updates');
@@ -72,6 +74,10 @@ export class WebSocketServer {
     // Poll pair data frequently for price/volume changes
     this.poll();
     this.pollInterval = setInterval(() => this.poll(), 5000);
+
+    // Warm up Jupiter token metadata (refresh every 30 minutes)
+    this.refreshJupiterTokens();
+    setInterval(() => this.refreshJupiterTokens(), 30 * 60 * 1000);
   }
 
   private async refreshBoosts() {
@@ -79,11 +85,19 @@ export class WebSocketServer {
       const top = await this.fetchDexBoosts('top');
       const latest = await this.fetchDexBoosts('latest');
 
-      const all = [...top, ...latest]
+      // Also pull GeckoTerminal trending pools (Solana)
+      const gecko = await this.fetchGeckoTrendingSolana();
+
+      const all = [...top.map(x => ({...x, _src: 'dexscreener-top'})), ...latest.map(x => ({...x, _src: 'dexscreener-latest'})), ...gecko.map(x => ({...x, _src: 'geckoterminal'}))]
         .filter((b) => (b.chainId || '').toLowerCase().includes('sol'));
 
       for (const b of all) {
-        if (b.tokenAddress) this.trackedAddresses.add(b.tokenAddress);
+        if (b.tokenAddress) {
+          this.trackedAddresses.add(b.tokenAddress);
+          const key = b.tokenAddress.toLowerCase();
+          if (!this.addressSources.has(key)) this.addressSources.set(key, new Set());
+          this.addressSources.get(key)!.add(String((b as any)._src));
+        }
       }
 
       // Avoid unbounded growth
@@ -108,6 +122,40 @@ export class WebSocketServer {
     return data.map((x: any) => ({ chainId: x.chainId, tokenAddress: x.tokenAddress }));
   }
 
+  // GeckoTerminal: best-effort trending pools for Solana
+  private async fetchGeckoTrendingSolana(): Promise<DexBoost[]> {
+    try {
+      const url = 'https://api.geckoterminal.com/api/v2/networks/solana/trending_pools';
+      const { data } = await axios.get(url, { timeout: 10000 });
+      const items = Array.isArray(data?.data) ? data.data : [];
+      return items.map((item: any) => {
+        const attrs = item?.attributes || {};
+        const baseMint = attrs?.base_token_address || attrs?.token_address;
+        return { chainId: 'solana', tokenAddress: baseMint } as DexBoost;
+      }).filter((b: DexBoost) => !!b.tokenAddress);
+    } catch {
+      return [];
+    }
+  }
+
+  private async refreshJupiterTokens() {
+    try {
+      const url = 'https://token.jup.ag/all';
+      const { data } = await axios.get(url, { timeout: 15000 });
+      if (Array.isArray(data)) {
+        const map = new Map<string, { symbol?: string; name?: string; logoURI?: string }>();
+        for (const t of data) {
+          if (t?.address) {
+            map.set(String(t.address).toLowerCase(), { symbol: t.symbol, name: t.name, logoURI: t.logoURI });
+          }
+        }
+        this.jupiterTokenMap = map;
+      }
+    } catch (e: any) {
+      logger.warn('Failed to refresh Jupiter token list', { error: e?.message });
+    }
+  }
+
   private async poll() {
     try {
       if (this.connectedClients.size === 0 || this.trackedAddresses.size === 0) return;
@@ -125,12 +173,16 @@ export class WebSocketServer {
         this.lastPairsByAddress.set(key, pair);
 
         if (!prev) {
-          const token = this.transformPairToBackendToken(pair);
-          this.io.emit('new_token', { type: 'new_token', data: { token }, timestamp: Date.now() });
+          const addr = (pair?.baseToken?.address || '').toLowerCase();
+          const sources = Array.from(this.addressSources.get(addr) || []);
+          // Emit RAW pair as-is with sources; no conversion
+          this.io.emit('new_token', { type: 'new_token', data: { source: 'dexscreener', sources, token: pair }, timestamp: Date.now() });
           continue;
         }
 
         if (this.hasMeaningfulChange(prev, pair)) {
+          const addr = (pair?.baseToken?.address || '').toLowerCase();
+          const sources = Array.from(this.addressSources.get(addr) || []);
           updates.push({
             token_address: pair.baseToken?.address,
             pairAddress: pair.pairAddress,
@@ -148,12 +200,15 @@ export class WebSocketServer {
             new_volume_h24: pair.volume?.h24 || 0,
             old_volume_h1: prev.volume?.h1 || 0,
             new_volume_h1: pair.volume?.h1 || 0,
+            source: 'dexscreener',
+            sources,
           });
         }
       }
 
       if (updates.length > 0) {
-        this.io.emit('price_update', { type: 'price_update', data: { updates }, timestamp: Date.now() });
+        // Emit a single consolidated event per poll to avoid duplicate bursts
+        this.io.to('token_updates').emit('pair_update', { type: 'pair_update', data: { updates }, timestamp: Date.now() });
       }
     } catch (e: any) {
       logger.warn('Polling error', { error: e?.message });
@@ -172,10 +227,12 @@ export class WebSocketServer {
 
   private transformPairToBackendToken(pair: DexPair) {
     const nowSec = Math.floor(Date.now() / 1000);
+    const addr = String(pair?.baseToken?.address || '').toLowerCase();
+    const meta = this.jupiterTokenMap.get(addr);
     return {
       token_address: pair?.baseToken?.address,
-      token_name: pair?.baseToken?.name || pair?.baseToken?.symbol,
-      token_ticker: pair?.baseToken?.symbol,
+      token_name: meta?.name || pair?.baseToken?.name || pair?.baseToken?.symbol,
+      token_ticker: meta?.symbol || pair?.baseToken?.symbol,
       price_sol: Number(pair?.priceUsd) || 0,
       price_usd: Number(pair?.priceUsd) || 0,
       market_cap_sol: pair?.fdv || 0,
@@ -210,6 +267,6 @@ export class WebSocketServer {
     if (this.refreshBoostsInterval) clearInterval(this.refreshBoostsInterval);
     this.io.close();
   }
-}
+} 
 
 

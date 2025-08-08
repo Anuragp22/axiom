@@ -93,17 +93,13 @@ class AxiomServer {
       res.json({ success: true, data: { status: 'ok' }, timestamp: Date.now() });
     });
 
-    // Minimal token listing endpoint (proxy/transform from DexScreener)
+    // Minimal token listing endpoint (aggregate trending addresses and fetch pairs)
     this.app.get('/api/tokens', async (req, res) => {
       try {
         const limit = Math.min(parseInt(String(req.query.limit || '50'), 10), config.pagination.maxLimit);
-        // Use a broad query to fetch active Solana pairs
-        const { data } = await axios.get(`${config.apis.dexScreener.baseUrl}/latest/dex/search`, {
-          params: { q: 'solana' },
-          timeout: config.apis.dexScreener.timeout,
-        });
-
-        const pairs: any[] = Array.isArray(data?.pairs) ? data.pairs : [];
+        const addresses = await this.getTrendingAddresses();
+        const addrList = Array.from(addresses).slice(0, 100);
+        const pairs = await this.fetchPairsByAddresses(addrList);
 
         // Optional filters
         const minVolume = req.query.min_volume ? Number(req.query.min_volume) : undefined;
@@ -130,7 +126,7 @@ class AxiomServer {
 
         const limited = filtered.slice(0, limit);
 
-        const tokens = limited.map(this.transformPairToBackendToken.bind(this));
+        const tokens = limited;
 
         res.json({
           success: true,
@@ -163,7 +159,7 @@ class AxiomServer {
           timeout: config.apis.dexScreener.timeout,
         });
         const pairs: any[] = Array.isArray(data?.pairs) ? data.pairs : [];
-        const tokens = pairs.slice(0, config.pagination.maxLimit).map(this.transformPairToBackendToken.bind(this));
+        const tokens = pairs.slice(0, config.pagination.maxLimit);
         res.json({
           success: true,
           data: { tokens, pagination: { next_cursor: undefined, has_more: false, total: tokens.length } },
@@ -219,49 +215,51 @@ class AxiomServer {
     });
   }
 
-  private transformPairToBackendToken(pair: any) {
-    const nowSec = Math.floor(Date.now() / 1000);
-    return {
-      token_address: pair?.baseToken?.address,
-      token_name: pair?.baseToken?.name || pair?.baseToken?.symbol,
-      token_ticker: pair?.baseToken?.symbol,
-      price_sol: Number(pair?.priceUsd) || 0,
-      price_usd: Number(pair?.priceUsd) || 0,
-      market_cap_sol: pair?.fdv || 0,
-      market_cap_usd: pair?.fdv || 0,
-      volume_sol: pair?.volume?.h24 || 0,
-      volume_usd: pair?.volume?.h24 || 0,
-      liquidity_sol: pair?.liquidity?.usd || 0,
-      liquidity_usd: pair?.liquidity?.usd || 0,
-      transaction_count: (pair?.txns?.h1?.buys || 0) + (pair?.txns?.h1?.sells || 0),
-      price_1hr_change: pair?.priceChange?.h1 || 0,
-      price_24hr_change: pair?.priceChange?.h24 || 0,
-      price_7d_change: 0,
-      protocol: 'dexscreener',
-      dex_id: 'dexscreener',
-      pair_address: pair?.pairAddress,
-      created_at: undefined,
-      updated_at: nowSec,
-      source: 'dexscreener',
-    };
-  }
+  // removed transform – raw upstream JSON is returned via REST and socket
 
   // Helper to forward to /api/tokens to avoid duplicating logic
   private async forwardToTokens(req: Request, res: Response) {
-    // Reuse logic of /api/tokens by calling the handler directly via axios to self
-    // but simpler is to call the same DexScreener flow here
     try {
       const limit = Math.min(parseInt(String(req.query.limit || '50'), 10), config.pagination.maxLimit);
-      const { data } = await axios.get(`${config.apis.dexScreener.baseUrl}/latest/dex/search`, {
-        params: { q: 'solana' },
-        timeout: config.apis.dexScreener.timeout,
-      });
-      const pairs: any[] = Array.isArray(data?.pairs) ? data.pairs : [];
-      const tokens = pairs.slice(0, limit).map(this.transformPairToBackendToken.bind(this));
+      const addresses = await this.getTrendingAddresses();
+      const addrList = Array.from(addresses).slice(0, 100);
+      const pairs = await this.fetchPairsByAddresses(addrList);
+      const tokens = pairs.slice(0, limit);
       res.json({ success: true, data: { tokens }, timestamp: Date.now() });
     } catch (error: any) {
       logger.error('Failed to fetch trending tokens', { error: error?.message });
       res.status(502).json({ success: false, error: { message: 'Upstream fetch failed', code: 'EXTERNAL_API_ERROR' }, timestamp: Date.now() });
+    }
+  }
+
+  private async getTrendingAddresses(): Promise<Set<string>> {
+    const addresses = new Set<string>();
+    try {
+      const top = await axios.get('https://api.dexscreener.com/token-boosts/top/v1', { timeout: 150000 }).then(r => r.data);
+      const latest = await axios.get('https://api.dexscreener.com/token-boosts/latest/v1', { timeout: 150000 }).then(r => r.data);
+      const gecko = await axios.get('https://api.geckoterminal.com/api/v2/networks/solana/trending_pools', { timeout: 150000 }).then(r => r.data);
+      const addAddr = (arr: any[]) => arr.forEach((x: any) => {
+        const addr = (x?.tokenAddress || x?.attributes?.base_token_address || '').toString();
+        if (addr) addresses.add(addr);
+      });
+      if (Array.isArray(top)) addAddr(top);
+      if (Array.isArray(latest)) addAddr(latest);
+      if (Array.isArray(gecko?.data)) addAddr(gecko.data);
+    } catch (e: any) {
+      logger.warn('getTrendingAddresses failed', { error: e?.message });
+    }
+    return addresses;
+  }
+
+  private async fetchPairsByAddresses(addresses: string[]): Promise<any[]> {
+    if (!addresses.length) return [];
+    const batch = addresses.slice(0, 30).join(',');
+    try {
+      const { data } = await axios.get(`${config.apis.dexScreener.baseUrl}/latest/dex/tokens/${batch}`, { timeout: config.apis.dexScreener.timeout });
+      return Array.isArray(data?.pairs) ? data.pairs : [];
+    } catch (e: any) {
+      logger.warn('fetchPairsByAddresses failed', { error: e?.message });
+      return [];
     }
   }
 

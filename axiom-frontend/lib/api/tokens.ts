@@ -21,6 +21,9 @@ interface BackendToken {
   protocol: string;
   dex_id?: string;
   pair_address?: string;
+  quote_token_address?: string;
+  quote_token_symbol?: string;
+  quote_token_name?: string;
   created_at?: number;
   updated_at: number;
   source: 'dexscreener' | 'jupiter' | 'geckoterminal';
@@ -48,24 +51,24 @@ function transformToken(backendToken: BackendToken): Token {
     id: backendToken.token_address,
     name: backendToken.token_name,
     symbol: backendToken.token_ticker,
-    imageUrl: generateTokenImage(backendToken.token_ticker),
+    imageUrl: '',
     pairInfo: {
       baseToken: {
         id: backendToken.token_address,
         symbol: backendToken.token_ticker,
         name: backendToken.token_name,
-        image: generateTokenImage(backendToken.token_ticker),
+        image: '',
         chainId: 101, // Solana
         address: backendToken.token_address,
         decimals: 9,
       },
       quoteToken: {
-        id: 'So11111111111111111111111111111111111111112',
-        symbol: 'SOL',
-        name: 'Solana',
-        image: '/images/solana.png',
+        id: backendToken.quote_token_address || '',
+        symbol: backendToken.quote_token_symbol || '',
+        name: backendToken.quote_token_name || '',
+        image: '',
         chainId: 101,
-        address: 'So11111111111111111111111111111111111111112',
+        address: backendToken.quote_token_address || '',
         decimals: 9,
       },
       pairAddress: backendToken.pair_address || backendToken.token_address, // Fallback to token address if no pair address
@@ -87,8 +90,8 @@ function transformToken(backendToken: BackendToken): Token {
       m5: 0, // Not available from backend
     },
     transactionData: {
-      buys24h: Math.floor(backendToken.transaction_count * 0.6), // Estimated
-      sells24h: Math.floor(backendToken.transaction_count * 0.4), // Estimated
+      buys24h: 0,
+      sells24h: 0,
       total24h: backendToken.transaction_count,
       makers: 0, // Not available from backend
       swaps: backendToken.transaction_count,
@@ -102,69 +105,29 @@ function transformToken(backendToken: BackendToken): Token {
     liquidity: backendToken.liquidity_usd || backendToken.liquidity_sol,
     volume24h: backendToken.volume_usd || backendToken.volume_sol,
     transactions24h: backendToken.transaction_count,
-    buys24h: Math.floor(backendToken.transaction_count * 0.6),
-    sells24h: Math.floor(backendToken.transaction_count * 0.4),
+    buys24h: 0,
+    sells24h: 0,
     priceChange24h: backendToken.price_24hr_change || backendToken.price_1hr_change,
     fdv: backendToken.market_cap_usd || backendToken.market_cap_sol,
-    audit: generateAuditInfo(backendToken),
-    socialLinks: generateSocialLinks(backendToken.token_ticker),
+    audit: {
+      honeypot: false,
+      honeypotPercentage: undefined,
+      isVerified: false,
+      isScam: false,
+      rugRisk: 'low',
+      liquidityLocked: false,
+      mintDisabled: undefined,
+      riskScore: 0,
+      burnPercentage: 0,
+      isPaid: false,
+    },
+    socialLinks: {},
     age,
-    communityUrl: `https://t.me/${backendToken.token_ticker.toLowerCase()}`,
+    communityUrl: undefined,
     isPumpFun: backendToken.protocol.toLowerCase().includes('pump'),
     isGraduated: backendToken.liquidity_usd ? backendToken.liquidity_usd > 50000 : false,
     createdAt: new Date(backendToken.created_at ? backendToken.created_at * 1000 : Date.now()).toISOString(),
     updatedAt: new Date(backendToken.updated_at * 1000).toISOString(),
-  };
-}
-
-/**
- * Generate token image URL (placeholder implementation)
- * Using a service that returns PNG images instead of SVG
- */
-function generateTokenImage(symbol: string): string {
-  // Use a service that returns PNG images, or fallback to a simple data URL
-  const colors = [
-    'FF6B6B', '4ECDC4', '45B7D1', '96CEB4', 'FFEAA7', 
-    'DDA0DD', 'FFB347', '87CEEB', 'F0E68C', 'FF69B4'
-  ];
-  
-  const colorIndex = symbol.length % colors.length;
-  const bgColor = colors[colorIndex];
-  const textColor = 'FFFFFF';
-  
-  // Create a simple image URL using an avatar service that returns PNG
-  return `https://ui-avatars.com/api/?name=${symbol}&size=64&background=${bgColor}&color=${textColor}&bold=true&format=png`;
-}
-
-/**
- * Generate audit information (placeholder implementation)
- * TODO: Replace with real audit API calls (RugCheck, GoPlus, etc.)
- */
-function generateAuditInfo(token: BackendToken): any {
-  // Return minimal audit info without random data
-  // In production, this should call real audit APIs
-  return {
-    honeypot: false, // Default to safe
-    honeypotPercentage: undefined,
-    isVerified: false, // Default to unverified
-    isScam: false, // Default to not scam
-    rugRisk: 'unknown', // Default to unknown risk
-    liquidityLocked: token.liquidity_usd ? token.liquidity_usd > 100000 : false,
-    mintDisabled: undefined, // Unknown without real audit data
-    riskScore: undefined, // No score without real audit
-    burnPercentage: undefined, // Unknown without real audit data
-    isPaid: false, // Default to unpaid
-  };
-}
-
-/**
- * Generate social links (placeholder implementation)
- */
-function generateSocialLinks(symbol: string): any {
-  return {
-    website: `https://${symbol.toLowerCase()}.com`,
-    twitter: `https://twitter.com/${symbol.toLowerCase()}`,
-    telegram: `https://t.me/${symbol.toLowerCase()}`,
   };
 }
 
