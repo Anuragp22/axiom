@@ -91,7 +91,7 @@ export const TokenDetailsPopover: React.FC<TokenDetailsPopoverProps> = ({
                     className="text-[#5DBCFF] hover:text-[#70c4ff] transition-colors"
                     aria-label={`View ${(token as any)?.baseToken?.name || ''} website (opens in new tab)`}
                   >
-                    <i className="ri-link text-lg"></i>
+                    <i className="ri-global-line text-lg"></i>
                   </a>
                 )}
                 <a 

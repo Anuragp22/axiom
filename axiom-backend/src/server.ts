@@ -9,15 +9,25 @@ import { errorHandler } from '@/middleware/error-handler';
 import config from '@/config';
 import logger from '@/utils/logger';
 import { Request, Response, NextFunction } from 'express';
+import RedisCacheService from '@/services/redis-cache.service';
 
 class AxiomServer {
   private app: express.Application;
   private httpServer: any;
   private wsServer: WebSocketServer | null = null;
+  private cache: RedisCacheService;
 
   constructor() {
     this.app = express();
     this.httpServer = createServer(this.app);
+    this.cache = new RedisCacheService({
+      url: config.cache.redisUrl,
+      host: config.cache.redisHost,
+      port: config.cache.redisPort,
+      password: config.cache.redisPassword,
+      ttlSeconds: config.cache.ttlSeconds,
+      keyPrefix: config.cache.keyPrefix,
+    });
     this.setupMiddleware();
     this.setupRoutes();
     this.setupWebSocket();
@@ -99,7 +109,8 @@ class AxiomServer {
         const limit = Math.min(parseInt(String(req.query.limit || '50'), 10), config.pagination.maxLimit);
         const addresses = await this.getTrendingAddresses();
         const addrList = Array.from(addresses).slice(0, 100);
-        const pairs = await this.fetchPairsByAddresses(addrList);
+        const cacheKey = `pairs:${addrList.join(',')}`;
+        const pairs = await this.cache.withCache<any[]>(cacheKey, () => this.fetchPairsByAddresses(addrList), config.cache.ttlSeconds);
 
         // Optional filters
         const minVolume = req.query.min_volume ? Number(req.query.min_volume) : undefined;
@@ -115,14 +126,14 @@ class AxiomServer {
         const sortBy = String(req.query.sort_by || 'volume');
         const sortDirection = String(req.query.sort_direction || 'desc');
         const direction = sortDirection === 'asc' ? 1 : -1;
-        const sorters: Record<string, (p: any) => number> = {
-          market_cap: (p: any) => p?.fdv || 0,
-          liquidity: (p: any) => p?.liquidity?.usd || 0,
-          volume: (p: any) => p?.volume?.h24 || 0,
-          price_change: (p: any) => p?.priceChange?.h24 || 0,
+        const sorters: Record<string, (p: Record<string, any>) => number> = {
+          market_cap: (p) => p?.fdv || 0,
+          liquidity: (p) => p?.liquidity?.usd || 0,
+          volume: (p) => p?.volume?.h24 || 0,
+          price_change: (p) => p?.priceChange?.h24 || 0,
         };
-        const sorterFn = (sorters[sortBy] ?? sorters.volume) as (p: any) => number;
-        filtered = filtered.sort((a, b) => (sorterFn(a) - sorterFn(b)) * direction);
+        const sorterFn = (sorters[sortBy] ?? sorters.volume) as (p: Record<string, any>) => number;
+        filtered = filtered.sort((a: Record<string, any>, b: Record<string, any>) => (sorterFn(a) - sorterFn(b)) * direction);
 
         const limited = filtered.slice(0, limit);
 
@@ -223,7 +234,8 @@ class AxiomServer {
       const limit = Math.min(parseInt(String(req.query.limit || '50'), 10), config.pagination.maxLimit);
       const addresses = await this.getTrendingAddresses();
       const addrList = Array.from(addresses).slice(0, 100);
-      const pairs = await this.fetchPairsByAddresses(addrList);
+      const cacheKey = `pairs:${addrList.join(',')}`;
+      const pairs = await this.cache.withCache<any[]>(cacheKey, () => this.fetchPairsByAddresses(addrList), config.cache.ttlSeconds);
       const tokens = pairs.slice(0, limit);
       res.json({ success: true, data: { tokens }, timestamp: Date.now() });
     } catch (error: any) {

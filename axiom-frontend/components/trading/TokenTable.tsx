@@ -36,6 +36,10 @@ interface TokenRowProps {
   onBuy,
   onDetails 
 }: TokenRowProps) => {
+  const websiteUrl = (token as any)?.info?.websites?.[0]?.url || '';
+  const socials = ((token as any)?.info?.socials || []) as any[];
+  const twitterUrl = socials.find((s: any) => (s?.type || '').toLowerCase() === 'twitter')?.url || '';
+  const telegramUrl = socials.find((s: any) => (s?.type || '').toLowerCase() === 'telegram')?.url || '';
   const formatNumber = (value: any) => {
     const num = Number(value || 0);
     if (num >= 1_000_000) return `$${(num / 1_000_000).toFixed(1)}M`;
@@ -94,21 +98,53 @@ interface TokenRowProps {
                 </span>
               </div>
               <div className="flex flex-row gap-2 items-center">
-                <span className="text-primaryGreen text-xs font-medium">
-                  {token.age}
-                </span>
-                {token.communityUrl && (
-                   <a 
-                    href={undefined} 
-                    target="_blank" 
-                    rel="noopener noreferrer" 
-                    className="text-[#5DBCFF] hover:text-[#70c4ff] transition-colors"
+                <span className="text-primaryGreen text-[12px] sm:text-[14px] font-medium">3mo</span>
+                {twitterUrl && (
+                  <a
+                    href={twitterUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[#5DBCFF] hover:text-[#70c4ff] transition-colors duration-[125ms] flex flex-row flex-shrink-0 gap-[2px] justify-start items-center cursor-pointer"
                     onClick={(e) => e.stopPropagation()}
-                    aria-label={`View community page (opens in new tab)`}
+                    aria-label={`Open Twitter profile (opens in new tab)`}
                   >
-                    <i className="ri-group-3-line text-sm"></i>
+                    <i className="ri-user-line text-sm" />
                   </a>
                 )}
+                {websiteUrl && (
+                  <a
+                    href={websiteUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center"
+                    onClick={(e) => e.stopPropagation()}
+                    aria-label={`Open website (opens in new tab)`}
+                  >
+                    <i className="text-textSecondary ri-global-line text-[14px] sm:text-[16px] hover:text-primaryBlueHover transition-colors duration-[125ms]" />
+                  </a>
+                )}
+                {telegramUrl && (
+                  <a
+                    href={telegramUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center"
+                    onClick={(e) => e.stopPropagation()}
+                    aria-label={`Open Telegram (opens in new tab)`}
+                  >
+                    <i className="text-textSecondary ri-telegram-2-line text-[14px] sm:text-[16px] hover:text-primaryBlueHover transition-colors duration-[125ms]" />
+                  </a>
+                )}
+                <a
+                  href={`https://x.com/search?q=${encodeURIComponent((token as any)?.baseToken?.symbol || '')}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center"
+                  onClick={(e) => e.stopPropagation()}
+                  aria-label={`Search on X (opens in new tab)`}
+                >
+                  <i className="text-textSecondary ri-search-line text-[14px] sm:text-[16px] hover:text-primaryBlueHover transition-colors duration-[125ms]" />
+                </a>
               </div>
             </div>
           </div>
@@ -212,26 +248,46 @@ interface TokenRowProps {
               </span>
             </div>
             <div className="flex flex-row gap-[8px] justify-start items-center">
-              {/* <span className="text-primaryGreen text-[12px] sm:text-[14px] font-medium">
-                {token.age}
-              </span> */}
-              <div>
+              <span className="text-primaryGreen text-[12px] sm:text-[14px] font-medium">3mo</span>
+              {twitterUrl && (
                 <a 
-                  href={token.communityUrl || '#'} 
+                  href={twitterUrl} 
                   target="_blank" 
                   rel="noopener noreferrer" 
                   className="text-[#5DBCFF] hover:text-[#70c4ff] transition-colors duration-[125ms] flex flex-row flex-shrink-0 gap-[2px] justify-start items-center cursor-pointer"
-                  aria-label={`View ${token.name} community page (opens in new tab)`}
+                  aria-label={`Open Twitter profile (opens in new tab)`}
                 >
-                  <i className="ri-group-3-line" style={{ fontSize: '16px' }}></i>
+                  <i className="ri-user-line" style={{ fontSize: '16px' }}></i>
                 </a>
-              </div>
+              )}
+              {websiteUrl && (
+                <a 
+                  href={websiteUrl} 
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  className="flex items-center"
+                  aria-label={`View ${(token as any)?.baseToken?.name || ''} website (opens in new tab)`}
+                >
+                  <i className="text-textSecondary ri-global-line text-[14px] sm:text-[16px] hover:text-primaryBlueHover transition-colors duration-[125ms]"></i>
+                </a>
+              )}
+              {telegramUrl && (
+                <a 
+                  href={telegramUrl} 
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  className="flex items-center"
+                  aria-label={`Open Telegram (opens in new tab)`}
+                >
+                  <i className="text-textSecondary ri-telegram-2-line text-[14px] sm:text-[16px] hover:text-primaryBlueHover transition-colors duration-[125ms]"></i>
+                </a>
+              )}
               <a 
                 href={`https://x.com/search?q=${encodeURIComponent((token as any)?.baseToken?.symbol || '')}`} 
                 target="_blank" 
                 rel="noopener noreferrer" 
                 className="flex items-center"
-                aria-label={`Search for token on X (formerly Twitter) (opens in new tab)`}
+                aria-label={`Search on X (opens in new tab)`}
               >
                 <i className="text-textSecondary ri-search-line text-[14px] sm:text-[16px] hover:text-primaryBlueHover transition-colors duration-[125ms]"></i>
               </a>

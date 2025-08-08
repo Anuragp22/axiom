@@ -30,6 +30,15 @@ const config = {
     credentials: true,
   },
 
+  cache: {
+    ttlSeconds: parseInt(process.env.CACHE_TTL_SECONDS || '30', 10),
+    redisUrl: process.env.REDIS_URL,
+    redisHost: process.env.REDIS_HOST,
+    redisPort: process.env.REDIS_PORT ? parseInt(process.env.REDIS_PORT, 10) : undefined,
+    redisPassword: process.env.REDIS_PASSWORD,
+    keyPrefix: process.env.REDIS_KEY_PREFIX || 'axiom:',
+  },
+
   logging: {
     level: process.env.LOG_LEVEL || 'info',
   },
