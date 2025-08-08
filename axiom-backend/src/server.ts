@@ -2,10 +2,10 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
+import axios from 'axios';
 import { createServer } from 'http';
 import { WebSocketServer } from '@/websocket/websocket-server';
 import { errorHandler } from '@/middleware/error-handler';
-// Removed unused route imports - only WebSocket is used
 import config from '@/config';
 import logger from '@/utils/logger';
 import { Request, Response, NextFunction } from 'express';
@@ -40,7 +40,7 @@ class AxiomServer {
 
     // CORS configuration
     this.app.use(cors({
-      origin: config.websocket.corsOrigin,
+      origin: config.cors.origin,
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'Authorization', 'x-request-id', 'x-timestamp'],
@@ -88,22 +88,103 @@ class AxiomServer {
   }
 
   private setupRoutes(): void {
-    // Only WebSocket is used - REST API routes removed
+    // Health endpoint
+    this.app.get('/api/health', (_req, res) => {
+      res.json({ success: true, data: { status: 'ok' }, timestamp: Date.now() });
+    });
 
-    // WebSocket stats endpoint
-    this.app.get('/api/websocket/stats', (req, res) => {
-      const stats = this.wsServer?.getStats() || {
-        connectedClients: 0,
-        rooms: [],
-        uptime: 0,
-      };
+    // Minimal token listing endpoint (proxy/transform from DexScreener)
+    this.app.get('/api/tokens', async (req, res) => {
+      try {
+        const limit = Math.min(parseInt(String(req.query.limit || '50'), 10), config.pagination.maxLimit);
+        // Use a broad query to fetch active Solana pairs
+        const { data } = await axios.get(`${config.apis.dexScreener.baseUrl}/latest/dex/search`, {
+          params: { q: 'solana' },
+          timeout: config.apis.dexScreener.timeout,
+        });
 
-      res.json({
-        success: true,
-        data: stats,
-        timestamp: Date.now(),
-        request_id: req.headers['x-request-id'],
-      });
+        const pairs: any[] = Array.isArray(data?.pairs) ? data.pairs : [];
+
+        // Optional filters
+        const minVolume = req.query.min_volume ? Number(req.query.min_volume) : undefined;
+        const minMarketCap = req.query.min_market_cap ? Number(req.query.min_market_cap) : undefined;
+        const minLiquidity = req.query.min_liquidity ? Number(req.query.min_liquidity) : undefined;
+
+        let filtered = pairs.filter(p => !!p?.baseToken?.address);
+        if (minVolume) filtered = filtered.filter(p => (p?.volume?.h24 || 0) >= minVolume);
+        if (minMarketCap) filtered = filtered.filter(p => (p?.fdv || 0) >= minMarketCap);
+        if (minLiquidity) filtered = filtered.filter(p => (p?.liquidity?.usd || 0) >= minLiquidity);
+
+        // Sort mapping
+        const sortBy = String(req.query.sort_by || 'volume');
+        const sortDirection = String(req.query.sort_direction || 'desc');
+        const direction = sortDirection === 'asc' ? 1 : -1;
+        const sorters: Record<string, (p: any) => number> = {
+          market_cap: (p: any) => p?.fdv || 0,
+          liquidity: (p: any) => p?.liquidity?.usd || 0,
+          volume: (p: any) => p?.volume?.h24 || 0,
+          price_change: (p: any) => p?.priceChange?.h24 || 0,
+        };
+        const sorterFn = (sorters[sortBy] ?? sorters.volume) as (p: any) => number;
+        filtered = filtered.sort((a, b) => (sorterFn(a) - sorterFn(b)) * direction);
+
+        const limited = filtered.slice(0, limit);
+
+        const tokens = limited.map(this.transformPairToBackendToken.bind(this));
+
+        res.json({
+          success: true,
+          data: {
+            tokens,
+            pagination: { next_cursor: undefined, has_more: false, total: tokens.length },
+          },
+          timestamp: Date.now(),
+          request_id: req.headers['x-request-id'],
+        });
+      } catch (error: any) {
+        logger.error('Failed to fetch tokens', { error: error?.message });
+        res.status(502).json({
+          success: false,
+          error: { message: 'Upstream fetch failed', code: 'EXTERNAL_API_ERROR' },
+          timestamp: Date.now(),
+        });
+      }
+    });
+
+    // Search endpoint
+    this.app.get('/api/tokens/search', async (req, res) => {
+      const q = String(req.query.q || '').trim();
+      if (!q) {
+        return res.json({ success: true, data: { tokens: [], pagination: { has_more: false, total: 0 } }, timestamp: Date.now() });
+      }
+      try {
+        const { data } = await axios.get(`${config.apis.dexScreener.baseUrl}/latest/dex/search`, {
+          params: { q },
+          timeout: config.apis.dexScreener.timeout,
+        });
+        const pairs: any[] = Array.isArray(data?.pairs) ? data.pairs : [];
+        const tokens = pairs.slice(0, config.pagination.maxLimit).map(this.transformPairToBackendToken.bind(this));
+        res.json({
+          success: true,
+          data: { tokens, pagination: { next_cursor: undefined, has_more: false, total: tokens.length } },
+          timestamp: Date.now(),
+        });
+      } catch (error: any) {
+        logger.error('Failed to search tokens', { error: error?.message });
+        res.status(502).json({ success: false, error: { message: 'Upstream fetch failed', code: 'EXTERNAL_API_ERROR' }, timestamp: Date.now() });
+      }
+    });
+
+    // Trending/featured (simple aliases to /tokens)
+    this.app.get('/api/tokens/trending', (req, res) => this.forwardToTokens(req, res));
+    this.app.get('/api/tokens/featured', (req, res) => this.forwardToTokens(req, res));
+
+    // Cache endpoints (no-op)
+    this.app.post('/api/tokens/cache/clear', (_req, res) => {
+      res.json({ success: true, data: { message: 'cache cleared' }, timestamp: Date.now() });
+    });
+    this.app.get('/api/tokens/cache/stats', (_req, res) => {
+      res.json({ success: true, data: { hit_rate: 0, size: 0, max_size: 0 }, timestamp: Date.now() });
     });
 
     // Root endpoint
@@ -115,8 +196,8 @@ class AxiomServer {
           version: '1.0.0',
           environment: config.server.nodeEnv,
           endpoints: {
-            websocket: 'ws://localhost:' + config.server.port,
-            stats: '/api/websocket/stats',
+            health: '/api/health',
+            tokens: '/api/tokens',
           },
         },
         timestamp: Date.now(),
@@ -136,6 +217,52 @@ class AxiomServer {
         request_id: req.headers['x-request-id'],
       });
     });
+  }
+
+  private transformPairToBackendToken(pair: any) {
+    const nowSec = Math.floor(Date.now() / 1000);
+    return {
+      token_address: pair?.baseToken?.address,
+      token_name: pair?.baseToken?.name || pair?.baseToken?.symbol,
+      token_ticker: pair?.baseToken?.symbol,
+      price_sol: Number(pair?.priceUsd) || 0,
+      price_usd: Number(pair?.priceUsd) || 0,
+      market_cap_sol: pair?.fdv || 0,
+      market_cap_usd: pair?.fdv || 0,
+      volume_sol: pair?.volume?.h24 || 0,
+      volume_usd: pair?.volume?.h24 || 0,
+      liquidity_sol: pair?.liquidity?.usd || 0,
+      liquidity_usd: pair?.liquidity?.usd || 0,
+      transaction_count: (pair?.txns?.h1?.buys || 0) + (pair?.txns?.h1?.sells || 0),
+      price_1hr_change: pair?.priceChange?.h1 || 0,
+      price_24hr_change: pair?.priceChange?.h24 || 0,
+      price_7d_change: 0,
+      protocol: 'dexscreener',
+      dex_id: 'dexscreener',
+      pair_address: pair?.pairAddress,
+      created_at: undefined,
+      updated_at: nowSec,
+      source: 'dexscreener',
+    };
+  }
+
+  // Helper to forward to /api/tokens to avoid duplicating logic
+  private async forwardToTokens(req: Request, res: Response) {
+    // Reuse logic of /api/tokens by calling the handler directly via axios to self
+    // but simpler is to call the same DexScreener flow here
+    try {
+      const limit = Math.min(parseInt(String(req.query.limit || '50'), 10), config.pagination.maxLimit);
+      const { data } = await axios.get(`${config.apis.dexScreener.baseUrl}/latest/dex/search`, {
+        params: { q: 'solana' },
+        timeout: config.apis.dexScreener.timeout,
+      });
+      const pairs: any[] = Array.isArray(data?.pairs) ? data.pairs : [];
+      const tokens = pairs.slice(0, limit).map(this.transformPairToBackendToken.bind(this));
+      res.json({ success: true, data: { tokens }, timestamp: Date.now() });
+    } catch (error: any) {
+      logger.error('Failed to fetch trending tokens', { error: error?.message });
+      res.status(502).json({ success: false, error: { message: 'Upstream fetch failed', code: 'EXTERNAL_API_ERROR' }, timestamp: Date.now() });
+    }
   }
 
   private setupWebSocket(): void {
@@ -180,10 +307,10 @@ class AxiomServer {
         pid: process.pid,
       });
 
-      // Log available endpoints
       logger.info('Available endpoints', {
+        health: `http://localhost:${config.server.port}/api/health`,
+        tokens: `http://localhost:${config.server.port}/api/tokens`,
         websocket: `ws://localhost:${config.server.port}`,
-        stats: `http://localhost:${config.server.port}/api/websocket/stats`,
       });
     });
   }
@@ -191,11 +318,6 @@ class AxiomServer {
   private shutdown(): void {
     logger.info('Shutting down server...');
     
-    // Stop WebSocket server
-    if (this.wsServer) {
-      this.wsServer.stop();
-    }
-
     // Close HTTP server
     this.httpServer.close((error: any) => {
       if (error) {
@@ -218,3 +340,31 @@ class AxiomServer {
 // Start the server
 const server = new AxiomServer();
 server.start(); 
+
+// Transform DexScreener pair to the frontend-expected backend token structure
+(AxiomServer as any).prototype.transformPairToBackendToken = function (pair: any) {
+  const nowSec = Math.floor(Date.now() / 1000);
+  return {
+    token_address: pair?.baseToken?.address,
+    token_name: pair?.baseToken?.name || pair?.baseToken?.symbol,
+    token_ticker: pair?.baseToken?.symbol,
+    price_sol: Number(pair?.priceUsd) || 0,
+    price_usd: Number(pair?.priceUsd) || 0,
+    market_cap_sol: pair?.fdv || 0,
+    market_cap_usd: pair?.fdv || 0,
+    volume_sol: pair?.volume?.h24 || 0,
+    volume_usd: pair?.volume?.h24 || 0,
+    liquidity_sol: pair?.liquidity?.usd || 0,
+    liquidity_usd: pair?.liquidity?.usd || 0,
+    transaction_count: (pair?.txns?.h1?.buys || 0) + (pair?.txns?.h1?.sells || 0),
+    price_1hr_change: pair?.priceChange?.h1 || 0,
+    price_24hr_change: pair?.priceChange?.h24 || 0,
+    price_7d_change: 0,
+    protocol: 'dexscreener',
+    dex_id: 'dexscreener',
+    pair_address: pair?.pairAddress,
+    created_at: undefined,
+    updated_at: nowSec,
+    source: 'dexscreener',
+  };
+};
